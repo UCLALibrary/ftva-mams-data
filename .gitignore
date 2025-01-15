@@ -169,3 +169,15 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Data files, unless in specific directories
+*.csv
+*.json
+*.mrc
+*.tsv
+*.xlsx
+*.xls
+*.xml
+
+# Allow devcontainer json
+!.devcontainer/*.json
