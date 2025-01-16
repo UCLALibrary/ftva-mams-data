@@ -1,0 +1,6 @@
+services:
+  ftva_data:
+    build: .
+    # tty: true
+    volumes: 
+      - .:/home/ftva_data/project

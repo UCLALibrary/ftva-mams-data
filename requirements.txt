@@ -1,0 +1,6 @@
+# # For MARC records
+# pymarc==5.1.2 
+# alma_api_client must be installed from the GitHub repository
+git+https://github.com/UCLALibrary/alma-api-client
+# For Excel conversion
+pandas==2.2.3
