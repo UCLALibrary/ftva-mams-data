@@ -44,3 +44,9 @@ $ docker compose run ftva_data python
 ```
 
 Some data sources require API keys. Get a copy of the relevant configuration file from a teammate and put it in the top level directory of the project.
+
+## Scripts
+
+### Retrieve FTVA holdings data from Alma
+
+```python get_ftva_holdings_report.py [-h] --config_file CONFIG_FILE --output_file OUTPUT_FILE```
