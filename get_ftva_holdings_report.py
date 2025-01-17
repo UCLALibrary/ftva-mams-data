@@ -26,7 +26,7 @@ def _get_config(config_file_name: str) -> dict:
     return config
 
 
-def get_ftva_holdings_report(analytics_api_key: str, report_path: str) -> dict:
+def get_ftva_holdings_report(analytics_api_key: str, report_path: str) -> list[dict]:
     """Gets the FTVA holdings report data from Alma analytics.
     Path to file is hard-coded.
     """
@@ -36,7 +36,7 @@ def get_ftva_holdings_report(analytics_api_key: str, report_path: str) -> dict:
     return report
 
 
-def write_report_to_file(report: dict, output_file_name: str) -> None:
+def write_report_to_file(report: list[dict], output_file_name: str) -> None:
     """Writes report to a CSV file, output_file_name."""
     keys = report[0].keys()
     with open(output_file_name, "w") as f:
