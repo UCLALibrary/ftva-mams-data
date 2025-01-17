@@ -33,13 +33,11 @@ def _get_config(config_file_name: str) -> dict:
     return config
 
 
-def get_deduped_mms_ids(data: list[dict]) -> list[str]:
-    """Returns a list of unique MMS IDs from a list of dicts."""
-    mms_ids = []
-    for item in data:
-        mms_id = item["MMS Id"]
-        if mms_id not in mms_ids:
-            mms_ids.append(mms_id)
+def get_deduped_mms_ids(input_file: str) -> set[str]:
+    """Returns a set of unique MMS IDs from an input JSON file."""
+    with open(input_file, "r") as f:
+        data = json.load(f)
+    mms_ids = set(item["MMS Id"] for item in data)
     return mms_ids
 
 
@@ -55,6 +53,7 @@ def write_records_to_file(records: list[Record], output_file: str) -> None:
     with open(output_file, "wb") as f:
         for record in records:
             f.write(record.as_marc())
+    print(f"Output written to {output_file}")
 
 
 if __name__ == "__main__":
@@ -62,12 +61,10 @@ if __name__ == "__main__":
     config = _get_config(args.config_file)
     api_key = config["alma_config"]["alma_api_key"]
     client = AlmaAPIClient(api_key)
-    data = json.load(open(args.input_file, "r"))
-    mms_ids = get_deduped_mms_ids(data)
+    mms_ids = get_deduped_mms_ids(args.input_file)
     print(f"Processing {len(mms_ids)} unique MMS IDs")
     output_records = []
     for mms_id in mms_ids:
         bib_record = get_bib_record(client, mms_id)
         output_records.append(bib_record)
     write_records_to_file(output_records, args.output_file)
-    print(f"Output written to {args.output_file}")
