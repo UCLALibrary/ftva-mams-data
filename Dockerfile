@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bullseye
+FROM python:3.12-slim-bookworm
 
 # Install git, required to install the alma_api_client package from github.
 RUN apt-get update && \
