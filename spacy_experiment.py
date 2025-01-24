@@ -1,4 +1,4 @@
-import ast
+import json
 import spacy
 import csv
 
@@ -62,12 +62,10 @@ def write_output_csv(file_name: str, output_dict: dict) -> None:
 
 def main():
     with open("f245c_directors.txt", encoding="utf-8") as file:
-        raw_data = file.read()
+        data = json.load(file)
 
-    data = ast.literal_eval(raw_data)
-    # concatenate each subfield_c into a single string
-    for i, subfield_c in enumerate(data):
-        data[i] = " ".join(subfield_c)
+    # concatenate each list of strings into a single string
+    data = [" ".join(row) for row in data]
 
     small_model = spacy.load("en_core_web_sm")
     medium_model = spacy.load("en_core_web_md")
