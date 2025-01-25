@@ -150,10 +150,8 @@ def get_criteria(record: dict) -> list[str]:
         criteria.append("6.2")
 
     # 6.3: Single director in 245 $c, check other 245 subfields.
-    if (
-        f245c_director_count == 1
-        and (record["f245a"] and record["f245p"])
-        or (record["f245a"] and record["f245n"])
+    if f245c_director_count == 1 and (
+        (record["f245a"] and record["f245p"]) or (record["f245a"] and record["f245n"])
     ):
         criteria.append("6.3")
 
