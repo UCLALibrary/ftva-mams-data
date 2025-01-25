@@ -1,13 +1,12 @@
 import argparse
-
-# import json
-import pickle
+import logging
 import re
 import spacy
-from csv import DictWriter
-from pprint import pprint
-from pymarc import MARCReader, Record
 import spacy.lang
+from csv import DictWriter
+from datetime import datetime
+from pathlib import Path
+from pymarc import MARCReader, Record
 
 
 def _get_args() -> argparse.Namespace:
@@ -25,6 +24,27 @@ def _get_args() -> argparse.Namespace:
     )
     args = parser.parse_args()
     return args
+
+
+def _get_logger(name: str | None = None) -> logging.Logger:
+    """
+    Returns a logger for the current application.
+    A unique log filename is created using the current time, and log messages
+    will use the name in the 'logger' field.
+    If name not supplied, the name of the current script is used.
+    """
+    if not name:
+        # Use base filename of current script.
+        name = Path(__file__).stem
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logging_filename = f"{name}_{timestamp}.log"
+    logger = logging.getLogger(name)
+    logging.basicConfig(
+        filename=logging_filename,
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s: %(message)s",
+    )
+    return logger
 
 
 def _get_bib_id(record: Record) -> str:
@@ -98,21 +118,6 @@ def _get_field_data(record: Record) -> dict:
     return field_data
 
 
-def print_stats(data: list) -> None:
-    # Quick list of unique 245 $p, which currently has up to 2 values
-    print("f245p values:")
-    print("==================")
-    values = [row["f245p"] for row in data]
-    unique_values = list(map(pickle.loads, dict.fromkeys(map(pickle.dumps, values))))
-    pprint(unique_values, width=132)
-    print("==================")
-
-    # Quick check of list sizes
-    for key, value in data[0].items():
-        if isinstance(value, list):
-            print(f"Max values in {key}: ", max([len(row[key]) for row in data]))
-
-
 def write_report_to_file(report: list[dict], output_file_name: str) -> None:
     """Writes report to a CSV file, output_file_name."""
     keys = report[0].keys()
@@ -122,8 +127,56 @@ def write_report_to_file(report: list[dict], output_file_name: str) -> None:
         writer.writerows(report)
 
 
-def characterize_record():
-    pass
+def get_criteria(record: dict) -> list[str]:
+    criteria = []
+    f245c_director_count = len(record["directors"]["f245c"])
+    f245p_director_count = len(record["directors"]["f245p"])
+    # 6.1: Single director in 245 $c, English, plus other stuff.
+    if (
+        f245c_director_count == 1
+        and record["f245a"]
+        and not record["f245p"]
+        and not record["f250a"]
+        and record["language"] == "eng"
+    ):
+        criteria.append("6.1")
+
+    # 6.2: Single director in 245 $c, NOT English, plus other stuff.
+    if (
+        f245c_director_count == 1
+        and record["f245a"]
+        and (record["f250a"] or record["language"] != "eng")
+    ):
+        criteria.append("6.2")
+
+    # 6.3: Single director in 245 $c, check other 245 subfields.
+    if (
+        f245c_director_count == 1
+        and (record["f245a"] and record["f245p"])
+        or (record["f245a"] and record["f245n"])
+    ):
+        criteria.append("6.3")
+
+    # 6.4: Multiple directors in 245 $c, plus other stuff.
+    if (record["f245a"] and f245c_director_count > 1) or (
+        record["f245a"] and (record["f505a"] or record["f505r"])
+    ):
+        criteria.append("6.4")
+
+    # 6.5: No director in 245 $c.
+    if f245c_director_count == 0:
+        criteria.append("6.5")
+
+    # 6.6: Director(s?) in 245 $p.
+    if f245p_director_count > 0:
+        criteria.append("6.6")
+
+    # 6.7: Whatever's left after checking the above.
+    # No criteria added already.
+    if not criteria:
+        criteria.append("6.7")
+
+    return criteria
 
 
 def _debug_print_leading_director_words(segment: str) -> None:
@@ -158,15 +211,6 @@ def _has_director(segment: str) -> bool:
     return False
 
 
-def _has_multiple_directors(record: dict) -> bool:
-    """Returns True if a record has more than 1 director, False otherwise."""
-    directors: dict = record["directors"]
-    # This should contain multiple keys, one for each record element in which
-    # director(s) were found. Each key has a list of directors, which may be empty.
-    director_count = sum([len(value) for value in directors.values()])
-    return director_count > 1
-
-
 def _get_director_segments(subfields: list[str]) -> list[str]:
     """Checks each segment (delimited by ";", if a subfield contains multiple segments)
     of each subfield and returns those which appear to contain information about directors.
@@ -185,7 +229,13 @@ def get_names(segments: list[str], model: spacy.Language) -> list[str]:
     for segment in segments:
         doc = model(segment)
         names.update([ent.text for ent in doc.ents if ent.label_ == "PERSON"])
-    # Return it as a list, for better consistency later on.
+
+    # If no names were found, despite them being expected in segments, log a message.
+    if len(names) == 0:
+        logger.warning(f"No names found in {segments}: manual review needed.")
+    # TODO: Possibly add other data checks here?
+
+    # Return a list, for better consistency later on.
     return list(names)
 
 
@@ -196,6 +246,8 @@ def get_bib_data(marc_file: str) -> list[dict]:
         for record in reader:
             field_data = _get_field_data(record)
             bib_data.append(field_data)
+
+    logger.info(f"Processed {len(bib_data)} records from {marc_file}")
     return bib_data
 
 
@@ -221,16 +273,22 @@ def add_director_data(bib_data: list[dict], model: spacy.Language) -> list[dict]
 def main() -> None:
     args = _get_args()
     model = spacy.load("en_core_web_md")
+    # TODO: Consider one call to do these two steps?
     bib_data = get_bib_data(args.input_file)
-
-    # Helpful during development
-    write_report_to_file(bib_data, args.output_file)
-
-    # Helpful during development
-    # print_stats(bib_data)
-
     bib_data = add_director_data(bib_data, model)
+
+    # For now, check each record here; probably move to method, maybe merge with the above 2?
+    for record in bib_data:
+        criteria = get_criteria(record)
+        print(record["bib_id"], criteria)
+
+    # TODO: Helpful during development, probably will remove later;
+    # if so, args.output_file may no longer be needed either.
+    write_report_to_file(bib_data, args.output_file)
 
 
 if __name__ == "__main__":
+    # Defining logger here makes it available to all code in this module.
+    logger = _get_logger()
+    # Finally, do everything
     main()
