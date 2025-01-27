@@ -1,5 +1,7 @@
 import argparse
+from collections import Counter
 import logging
+from pprint import pprint
 import re
 import spacy
 import spacy.lang
@@ -276,9 +278,14 @@ def main() -> None:
     bib_data = add_director_data(bib_data, model)
 
     # For now, check each record here; probably move to method, maybe merge with the above 2?
+    criteria_list = []
     for record in bib_data:
         criteria = get_criteria(record)
+        c_string = " ".join(criteria)
+        criteria_list.append(c_string)
         print(record["bib_id"], criteria)
+    d = Counter(criteria_list)
+    pprint({key: d[key] for key in sorted(d)})
 
     # TODO: Helpful during development, probably will remove later;
     # if so, args.output_file may no longer be needed either.
