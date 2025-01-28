@@ -1,12 +1,10 @@
 import json
 import spacy
 import csv
+from train_spacy import train_model, load_training_data
 
 # for type hinting
 from spacy.language import Language
-
-# custom model trained with 20 iterations
-from train_spacy import train_model, load_training_data
 
 
 def find_names(data: list, model: Language) -> dict:
