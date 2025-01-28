@@ -201,23 +201,41 @@ def get_criteria(record: dict) -> str:
     ):
         return "6.3"
 
-    # 6.4: Multiple directors in 245 $c, plus other stuff.
-    if (record["f245a"] and f245c_director_count > 1) or (
-        record["f245a"] and (record["f505a"] or record["f505r"])
+    # 6.4: Multiple directors in 245 $c, English, plus other stuff.
+    # TODO: Thelma still reviewing, uncomment / change as needed.
+    if (
+        f245c_director_count > 1
+        and record["f245a"]
+        and not record["f250a"]
+        and record["language"] == "eng"
     ):
         return "6.4"
 
-    # 6.5: No director in 245 $c.
-    if f245c_director_count == 0:
+    # 6.5: Multiple directors in 245 $c, NOT English, plus other stuff.
+    if (
+        f245c_director_count > 1
+        and record["f245a"]
+        and (record["f250a"] or record["language"] != "eng")
+    ):
         return "6.5"
 
-    # 6.6: Director(s?) in 245 $p.
-    if f245p_director_count > 0:
+    # 6.6: Multiple directors in 245 $c, check other 245 subfields.
+    if f245c_director_count > 1 and (
+        (record["f245a"] and record["f245p"]) or (record["f245a"] and record["f245n"])
+    ):
         return "6.6"
 
-    # 6.7: Whatever's left after checking the above.
-    # No criteria added already.
-    return "6.7"
+    # 6.7: No director in 245 $c.
+    if f245c_director_count == 0:
+        return "6.7"
+
+    # 6.8: Director(s?) in 245 $p.
+    if f245p_director_count > 0:
+        return "6.8"
+
+    # 6.9: Whatever's left after checking the above.
+    # No criteria matched already.
+    return "6.9"
 
 
 def _get_all_criteria(record: dict) -> list[str]:
@@ -252,26 +270,42 @@ def _get_all_criteria(record: dict) -> list[str]:
     ):
         criteria.append("6.3")
 
-    # 6.4: Multiple directors in 245 $c, plus other stuff.
-    if (record["f245a"] and f245c_director_count > 1) or (
-        record["f245a"]
-        and f245c_director_count > 1
-        and (record["f505a"] or record["f505r"])
+    # 6.4: Multiple directors in 245 $c, English, plus other stuff.
+    # TODO: Thelma still reviewing, uncomment / change as needed.
+    if (
+        f245c_director_count > 1
+        and record["f245a"]
+        and not record["f250a"]
+        and record["language"] == "eng"
     ):
         criteria.append("6.4")
 
-    # 6.5: No director in 245 $c.
-    if f245c_director_count == 0:
+    # 6.5: Multiple directors in 245 $c, NOT English, plus other stuff.
+    if (
+        f245c_director_count > 1
+        and record["f245a"]
+        and (record["f250a"] or record["language"] != "eng")
+    ):
         criteria.append("6.5")
 
-    # 6.6: Director(s?) in 245 $p.
-    if f245p_director_count > 0:
+    # 6.6: Multiple directors in 245 $c, check other 245 subfields.
+    if f245c_director_count > 1 and (
+        (record["f245a"] and record["f245p"]) or (record["f245a"] and record["f245n"])
+    ):
         criteria.append("6.6")
 
-    # 6.7: Whatever's left after checking the above.
-    # No criteria added already.
-    if not criteria:
+    # 6.7: No director in 245 $c.
+    if f245c_director_count == 0:
         criteria.append("6.7")
+
+    # 6.8: Director(s?) in 245 $p.
+    if f245p_director_count > 0:
+        criteria.append("6.8")
+
+    # 6.9: Whatever's left after checking the above.
+    # No criteria matched already.
+    if not criteria:
+        criteria.append("6.9")
 
     return criteria
 
