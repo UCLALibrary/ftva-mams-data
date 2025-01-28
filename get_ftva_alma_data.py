@@ -150,6 +150,8 @@ def _dump_all_criteria(bib_data: list[dict]) -> None:
             criteria_list.append(c_string)
             f.write(f"{record["bib_id"]} -> {c_string}\n")
     # Also print counts to stdout, without writing them to file.
+    print("\nCounts of criteria combinations")
+    print("===============================")
     d = Counter(criteria_list)
     pprint({key: d[key] for key in sorted(d)})
 
@@ -167,15 +169,6 @@ def _dump_directors(bib_data: list[dict]) -> None:
                         f"{subfield_code} -> {record[subfield_code]} -> "
                         f"{record["directors"][subfield_code]}\n"
                     )
-
-
-def write_report_to_file(report: list[dict], output_file_name: str) -> None:
-    """Writes report to a CSV file, output_file_name."""
-    keys = report[0].keys()
-    with open(output_file_name, "w") as f:
-        writer = DictWriter(f, keys, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(report)
 
 
 def get_criteria(record: dict) -> str:
@@ -228,7 +221,7 @@ def get_criteria(record: dict) -> str:
 
 
 def _get_all_criteria(record: dict) -> list[str]:
-    # TODO: REMOVE
+    # TODO: Remove after debugging.
     """Categorizes record against the criteria in 6.x of the Criteria Matrix.
     Returns a list of all matching criteria, for debugging / review only.
     """
@@ -416,10 +409,24 @@ def get_director_data(field_data: dict, model: spacy.Language) -> dict:
     return director_data
 
 
+def write_data_to_file(report: list[dict], output_file_name: str) -> None:
+    """Writes data to a CSV file, output_file_name."""
+    keys = report[0].keys()
+    with open(output_file_name, "w") as f:
+        writer = DictWriter(f, keys, delimiter="\t")
+        writer.writeheader()
+        writer.writerows(report)
+
+
 def main() -> None:
     args = _get_args()
     model = spacy.load("en_core_web_md")
     bib_data = get_bib_data(args.input_file, model)
+
+    # TODO: Something useful with this... currently just shows usage.
+    for record in bib_data:
+        criteria = get_criteria(record)
+        print(record["bib_id"], criteria)
 
     # Useful during debugging
     if args.dump_directors:
@@ -429,7 +436,7 @@ def main() -> None:
 
     # TODO: Helpful during development, probably will remove later;
     # if so, args.output_file may no longer be needed either.
-    write_report_to_file(bib_data, args.output_file)
+    write_data_to_file(bib_data, args.output_file)
 
 
 if __name__ == "__main__":
