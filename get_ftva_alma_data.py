@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from pymarc import MARCReader, Record
 from pprint import pprint  # TODO: Remove after debugging
+from spacy_utils import train_model
 
 
 def _get_args() -> argparse.Namespace:
@@ -24,6 +25,11 @@ def _get_args() -> argparse.Namespace:
         "--output_file",
         help="Path to output file of parsed data",
         required=True,
+    )
+    parser.add_argument(
+        "--training_file",
+        help="Path to file of corrected names for training spacy",
+        required=False,
     )
     parser.add_argument(
         "--dump_criteria",
@@ -512,6 +518,12 @@ def get_mams_json(record: dict) -> dict:
 def main() -> None:
     args = _get_args()
     model = spacy.load("en_core_web_md")
+    # Apply our local changes, if requested.
+    if args.training_file:
+        model = train_model(args.training_file, model)
+
+    # Get all the Alma data we'll need from MARC input file,
+    # using the spacy model to identify personal names.
     bib_data = get_bib_data(args.input_file, model)
 
     # TODO: Something useful with this... currently just shows usage.
