@@ -1,6 +1,7 @@
 import json
 import spacy
 import csv
+from train_spacy import train_model, load_training_data
 
 # for type hinting
 from spacy.language import Language
@@ -28,7 +29,7 @@ def find_names(data: list, model: Language) -> dict:
     return output_dict
 
 
-def evaluate_model(data: list, model: Language) -> None:
+def evaluate_model(data: list, model: Language, filename: str) -> None:
     entity_dict = find_names(data, model)
     # get total count of names and other entities
     total_names = 0
@@ -40,7 +41,7 @@ def evaluate_model(data: list, model: Language) -> None:
     print(f"total subfields: {len(entity_dict)}")
     print(f"total names: {total_names}")
     print(f"total other entities: {total_other_entities}")
-    write_output_csv(f"output_{model.meta['name']}.csv", entity_dict)
+    write_output_csv(filename, entity_dict)
 
 
 def write_output_csv(file_name: str, output_dict: dict) -> None:
@@ -71,10 +72,17 @@ def main():
     medium_model = spacy.load("en_core_web_md")
 
     print("small model:")
-    evaluate_model(data, small_model)
+    evaluate_model(data, small_model, "small_model_output.csv")
     print()
     print("medium model:")
-    evaluate_model(data, medium_model)
+    evaluate_model(data, medium_model, "medium_model_output.csv")
+    print()
+
+    # train custom model
+    training_data = load_training_data("training_data.txt")
+    custom_model = train_model(training_data, medium_model)
+    print("custom model:")
+    evaluate_model(data, custom_model, "custom_model_output.csv")
 
 
 if __name__ == "__main__":
