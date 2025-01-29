@@ -1,7 +1,7 @@
 import json
 import spacy
 import csv
-from train_spacy import train_model, load_training_data
+from spacy_utils import train_model
 
 # for type hinting
 from spacy.language import Language
@@ -79,8 +79,8 @@ def main():
     print()
 
     # train custom model
-    training_data = load_training_data("training_data.txt")
-    custom_model = train_model(training_data, medium_model)
+    # Hard-coded file name for experiment.
+    custom_model = train_model("training_data.txt", medium_model)
     print("custom model:")
     evaluate_model(data, custom_model, "custom_model_output.csv")
 
