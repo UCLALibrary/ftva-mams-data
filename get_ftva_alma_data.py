@@ -500,7 +500,7 @@ def get_mams_json(record: dict) -> dict:
     alma_bib_id = record["bib_id"]
 
     # For now, throw everything into a flat dictionary for json output later.
-    return {
+    mams_data = {
         "alma_bib_id": alma_bib_id,
         "title": title,
         "alternative_titles": alternative_titles,
@@ -513,6 +513,10 @@ def get_mams_json(record: dict) -> dict:
         "language_other": language_other,
         "directors": directors,
     }
+
+    # Many keys will have empty lists for values, if there was no MARC data for them;
+    # remove those and return what's left.
+    return {key: val for key, val in mams_data.items() if val}
 
 
 def main() -> None:
