@@ -1,4 +1,3 @@
-import spacy
 from spacy.training.example import Example
 from spacy.language import Language
 
@@ -30,26 +29,25 @@ def _format_training_data(data: list) -> list:
     return formatted_data
 
 
-def train_model(data: list) -> Language:
+def train_model(data: list, model: Language) -> Language:
     """Train a spacy NER model with the given data, loaded from a text file."""
     formatted_data = _format_training_data(data)
 
-    nlp = spacy.load("en_core_web_md")
     # set up pipeline for training
-    if "ner" not in nlp.pipe_names:
-        ner = nlp.add_pipe("ner")
-        nlp.add_pipe(ner, last=True)
+    if "ner" not in model.pipe_names:
+        ner = model.add_pipe("ner")
+        model.add_pipe(ner, last=True)
     else:
-        ner = nlp.get_pipe("ner")
+        ner = model.get_pipe("ner")
 
     # get names of other pipes to disable them during training
-    other_pipes = [pipe for pipe in nlp.pipe_names if pipe != "ner"]
-    with nlp.disable_pipes(*other_pipes):  # only train NER
-        nlp.resume_training()
-        for itn in range(10):
+    other_pipes = [pipe for pipe in model.pipe_names if pipe != "ner"]
+    with model.select_pipes(disable=other_pipes):
+        model.resume_training()
+        for _ in range(10):
             losses = {}
             for text, annotations in formatted_data:
-                doc = nlp.make_doc(text)
+                doc = model.make_doc(text)
                 example = Example.from_dict(doc, annotations)
-                nlp.update([example], drop=0.5, losses=losses)
-    return nlp
+                model.update([example], drop=0.5, losses=losses)
+    return model

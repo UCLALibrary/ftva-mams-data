@@ -80,7 +80,7 @@ def main():
 
     # train custom model
     training_data = load_training_data("training_data.txt")
-    custom_model = train_model(training_data)
+    custom_model = train_model(training_data, medium_model)
     print("custom model:")
     evaluate_model(data, custom_model, "custom_model_output.csv")
 
