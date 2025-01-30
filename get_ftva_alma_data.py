@@ -1,14 +1,16 @@
 import argparse
-from collections import Counter
+import json
 import logging
-from pprint import pprint
 import re
 import spacy
 import spacy.lang
+from collections import Counter
 from csv import DictWriter
 from datetime import datetime
 from pathlib import Path
 from pymarc import MARCReader, Record
+from pprint import pprint  # TODO: Remove after debugging
+from spacy_utils import train_model
 
 
 def _get_args() -> argparse.Namespace:
@@ -23,6 +25,11 @@ def _get_args() -> argparse.Namespace:
         "--output_file",
         help="Path to output file of parsed data",
         required=True,
+    )
+    parser.add_argument(
+        "--training_file",
+        help="Path to file of corrected names for training spacy",
+        required=False,
     )
     parser.add_argument(
         "--dump_criteria",
@@ -417,15 +424,19 @@ def get_bib_data(marc_file: str, model: spacy.Language) -> list[dict]:
             field_data = _get_field_data(record)
             # Add director information, derived from field_data.
             field_data["directors"] = get_director_data(field_data, model)
+            # TODO: Temporary, for exploration / demo only.
+            # Add original MARC record for quick reference along with parsed data.
+            field_data["marc"] = record
+
             bib_data.append(field_data)
 
     logger.info(f"Processed {len(bib_data)} records from {marc_file}")
     return bib_data
 
 
-def get_director_data(field_data: dict, model: spacy.Language) -> dict:
-    """Returns a list of directors' names based on elements of field_data, using
-    the given model to identify personal name entities.
+def get_director_data(field_data: dict, model: spacy.Language) -> dict[str, list]:
+    """Returns a dictionary of lists of directors' names based on elements of field_data,
+    using the given model to identify personal name entities.
     """
     # Check 245 $c and $p, though $p currently does not have any director information.
     # We need to know whether directors found in 245 $c or 245 $p (or both).
@@ -452,15 +463,78 @@ def write_data_to_file(report: list[dict], output_file_name: str) -> None:
         writer.writerows(report)
 
 
+def get_mams_json(record: dict) -> dict:
+    # All temporary for exploration.
+    # Data still needs to be cleaned / transformed.
+    # MARC extraction very hacky for now.
+    bib_record: Record = record["marc"]
+    # Comments for each element:
+    # tag_no:subfield_code:field_repeatable:subfield_repeatable (within each field).
+    # Source: https://www.loc.gov/marc/bibliographic/
+
+    # 245:a:N:N
+    title = _get_single_subfield(bib_record, "245", "a")
+    # 246:a:Y:N
+    alternative_titles = _get_subfields(bib_record, "246", "a")
+    # 245:p:N:Y
+    episode_titles = _get_subfields(bib_record, "245", "p")
+    # 245:a:N:N SAME AS TITLE
+    series_title = _get_single_subfield(bib_record, "245", "a")
+    # 490 and/or 830 (no other spec given)
+    # 490 and 830 are both repeatable; subfields vary
+    subseries_titles = [fld.value() for fld in bib_record.get_fields("490", "830")]
+    # 245:n:N:Y
+    episode_numbers_245 = _get_subfields(bib_record, "245", "n")
+    # 246:n:Y:Y
+    episode_numbers_246 = _get_subfields(bib_record, "246", "n")
+    # From 008, already obtained
+    language = record["language"]
+    # 041 (no other spec given); repeatable, with many repeatable subfields
+    language_other = [fld.value() for fld in bib_record.get_fields("041")]
+    # Already obtained from 245 $c and possibly $p; flatten into single list
+    directors = [name for lst in record["directors"].values() for name in lst]
+    # broadcast_date: too broadly defined
+    # production_date: too broadly defined
+    # release_date: too broadly defined
+    # From 001, already obtained - for debugging, at least
+    alma_bib_id = record["bib_id"]
+
+    # For now, throw everything into a flat dictionary for json output later.
+    mams_data = {
+        "alma_bib_id": alma_bib_id,
+        "title": title,
+        "alternative_titles": alternative_titles,
+        "episode_titles": episode_titles,
+        "series_title": series_title,
+        "subseries_titles": subseries_titles,
+        "episode_numbers_245": episode_numbers_245,
+        "episode_numbers_246": episode_numbers_246,
+        "language": language,
+        "language_other": language_other,
+        "directors": directors,
+    }
+
+    # Many keys will have empty lists for values, if there was no MARC data for them;
+    # remove those and return what's left.
+    return {key: val for key, val in mams_data.items() if val}
+
+
 def main() -> None:
     args = _get_args()
     model = spacy.load("en_core_web_md")
+    # Apply our local changes, if requested.
+    if args.training_file:
+        model = train_model(args.training_file, model)
+
+    # Get all the Alma data we'll need from MARC input file,
+    # using the spacy model to identify personal names.
     bib_data = get_bib_data(args.input_file, model)
 
     # TODO: Something useful with this... currently just shows usage.
-    for record in bib_data:
-        criteria = get_criteria(record)
-        print(record["bib_id"], criteria)
+    # Waiting for clarity on why evaluating criteria matters for output.
+    # for record in bib_data:
+    #     criteria = get_criteria(record)
+    #     print(record["bib_id"], criteria)
 
     # Useful during debugging
     if args.dump_directors:
@@ -471,6 +545,17 @@ def main() -> None:
     # TODO: Helpful during development, probably will remove later;
     # if so, args.output_file may no longer be needed either.
     write_data_to_file(bib_data, args.output_file)
+
+    # TODO: Organize output in json
+    # Assuming this should be list of records, and not wrapped in a root element of some sort.
+    all_mams_records = []
+    for record in bib_data:
+        # For now, use original record temporarily added in get_bib_data()
+        mams_json = get_mams_json(record)
+        all_mams_records.append(mams_json)
+
+    with open("ftva_mams_data.json", "w") as json_file:
+        json.dump(all_mams_records, json_file, indent=2)
 
 
 if __name__ == "__main__":
