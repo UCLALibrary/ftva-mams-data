@@ -14,27 +14,27 @@ def _get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--alma_holdings_file",
-        help="Path to input file containing Alma MMS and Holdings data",
+        help="Path to input file containing Alma MMS and Holdings data (JSON)",
         required=True,
     )
     parser.add_argument(
         "--alma_bibs_file",
-        help="Path to input file containing Alma bib records",
+        help="Path to input file containing Alma bib records (MARC)",
         required=True,
     )
     parser.add_argument(
         "--filemaker_data_file",
-        help="Path to input file containing FileMaker data",
+        help="Path to input file containing FileMaker data (CSV)",
         required=True,
     )
     parser.add_argument(
         "--output_file",
-        help="Path to output file of monograph records only",
+        help="Path to output file of monograph records only (MARC)",
         required=True,
     )
     parser.add_argument(
         "--form_mismatch_report",
-        help="Optional: Path to output file of form mismatch report",
+        help="Optional: Path to output file of form mismatch report (CSV)",
         required=False,
     )
     args = parser.parse_args()
