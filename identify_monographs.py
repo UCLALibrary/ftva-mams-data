@@ -286,7 +286,8 @@ def _match_records(alma_data: list, fm_data: list) -> list:
 def _get_full_bib_data(matched_data: list, alma_bib_file: str) -> list:
     """Given a list of tuples of Alma data references and FileMaker data, returns a list of
     tuples of full Alma bib data and FileMaker data."""
-    alma_bib_data = pymarc.MARCReader(open(alma_bib_file, "rb"))
+    with open(alma_bib_file, "rb") as f:
+        alma_bib_data = list(pymarc.MARCReader(f))
     alma_bib_dict = {record["001"].data: record for record in alma_bib_data}
     full_data = []
     for alma_data, fm_data in matched_data:
@@ -401,9 +402,6 @@ def main():
 
     alma_data_refs = _load_alma_data(args.alma_holdings_file)
     fm_data = _load_fm_data(args.filemaker_data_file)
-    print(
-        f"Loaded {len(alma_data_refs)} Alma records and {len(fm_data)} FileMaker records"
-    )
 
     matched_records = _match_records(alma_data_refs, fm_data)
     print(f"Matched {len(matched_records)} records")
