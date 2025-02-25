@@ -1,0 +1,210 @@
+[
+  {
+    "asset_title": "Man Happenings",
+    "dates": "ca. 1970",
+    "languages": "English",
+    "asset_type": "Unknown",
+    "mms_id": "991730933506533",
+    "inventory_id": "209196",
+    "inventory_number": "M25441",
+    "file_name": "M25441_ManHappenings_CaptureFiles_HD_ProRes422HQ",
+    "storage_path": "820015/M25441_ManHappenings_CaptureFiles_HD_ProRes422HQ",
+    "isInstanceOf": {
+      "primary_title": "Man Happenings",
+      "dates": "ca. 1970",
+      "directors": [
+        "Pat Rocco"
+      ],
+      "forms": [
+        "Compilations",
+        "Shorts"
+      ],
+      "Contains": [
+        "The groovy guy",
+        "A very special friend"
+      ]
+    }
+  },
+  {
+    "asset_title": "The groovy guy",
+    "dates": "ca. 1969",
+    "languages": "English",
+    "asset_type": "Unknown",
+    "mms_id": "99456263506533",
+    "inventory_id": "209270",
+    "inventory_number": "M58710",
+    "file_name": "M58710_GroovyGuy_PicORIG_Kodachrome_24fps_2K_ProRes422HQ",
+    "storage_path": "000083/M58710_GroovyGuy_PicORIG_Kodachrome_24fps_2K_ProRes422HQ",
+    "isInstanceOf": {
+      "primary_title": "The groovy guy",
+      "dates": "ca. 1969",
+      "directors": [
+        "Pat Rocco"
+      ],
+      "forms": [
+        "Shorts",
+        "Documentary"
+      ]
+    },
+    "isContainedIn": {
+      "primary_title": "Man Happenings",
+      "dates": "ca. 1970",
+      "forms": [
+        "Compilations",
+        "Shorts"
+      ]
+    }
+  },
+  {
+    "asset_title": "The groovy guy",
+    "dates": "ca. 1969",
+    "languages": "English",
+    "asset_type": "Unknown",
+    "mms_id": "99456263506533",
+    "inventory_id": "209275",
+    "inventory_number": "M62018",
+    "file_name": "M62018_GroovyGuy_FadedColorRev_OutofSyncWSound_2K_ProRes422HQ",
+    "storage_path": "000083/M62018_GroovyGuy_FadedColorRev_OutofSyncWSound_2K_ProRes422HQ",
+    "isInstanceOf": {
+      "primary_title": "The groovy guy",
+      "dates": "ca. 1969",
+      "directors": [
+        "Pat Rocco"
+      ],
+      "forms": [
+        "Shorts",
+        "Documentary"
+      ]
+    },
+    "isContainedIn": {
+      "primary_title": "Man Happenings",
+      "dates": "ca. 1970",
+      "forms": [
+        "Compilations",
+        "Shorts"
+      ]
+    }
+  },
+  {
+    "asset_title": "The groovy guy",
+    "dates": "ca. 1969",
+    "languages": "English",
+    "asset_type": "Unknown",
+    "mms_id": "99456263506533",
+    "inventory_id": "209269",
+    "inventory_number": "M58940",
+    "file_name": "M58940_GroovyGuy_ColorRevWSound_2K_ProRes422HQ",
+    "storage_path": "000083/M58940_GroovyGuy_ColorRevWSound_2K_ProRes422HQ",
+    "isGenerationOf": "M58940_GroovyGuy_ColorRevWSound_SD_24fps",
+    "isInstanceOf": {
+      "primary_title": "The groovy guy",
+      "dates": "ca. 1969",
+      "directors": [
+        "Pat Rocco"
+      ],
+      "forms": [
+        "Shorts",
+        "Documentary"
+      ]
+    },
+    "isContainedIn": {
+      "primary_title": "Man Happenings",
+      "dates": "ca. 1970",
+      "forms": [
+        "Compilations",
+        "Shorts"
+      ]
+    }
+  },
+  {
+    "asset_title": "The groovy guy",
+    "dates": "ca. 1969",
+    "languages": "English",
+    "asset_type": "Unknown",
+    "mms_id": "99456263506533",
+    "inventory_id": "209269",
+    "inventory_number": "M58940",
+    "file_name": "M58940_GroovyGuy_ColorRevWSound_SD_24fp",
+    "storage_path": "000083/M58940_GroovyGuy_ColorRevWSound_SD_24fp",
+    "HasGeneration": "M58940_GroovyGuy_ColorRevWSound_2K_ProRes422HQ",
+    "isInstanceOf": {
+      "primary_title": "The groovy guy",
+      "dates": "ca. 1969",
+      "directors": [
+        "Pat Rocco"
+      ],
+      "forms": [
+        "Shorts",
+        "Documentary"
+      ]
+    },
+    "isContainedIn": {
+      "primary_title": "Man Happenings",
+      "dates": "ca. 1970",
+      "forms": [
+        "Compilations",
+        "Shorts"
+      ]
+    }
+  },
+  {
+    "asset_title": "A very special friend",
+    "dates": "ca. 1968",
+    "languages": "English",
+    "asset_type": "Unknown",
+    "mms_id": "991168043506533",
+    "inventory_id": "209764",
+    "inventory_number": "M58774",
+    "file_name": "VerySpecial FriendFIXED_HD_ProRes422HQ",
+    "storage_path": "000083/VerySpecial FriendFIXED_HD_ProRes422HQ",
+    "IsSourceof": "VerySpecial FriendFIXED_FINAL_HD_ProRes422HQ",
+    "isInstanceOf": {
+      "primary_title": "A very special friend",
+      "dates": "ca. 1968",
+      "directors": [
+        "Pat Rocco"
+      ],
+      "forms": [
+        "Shorts"
+      ]
+    },
+    "isContainedIn": {
+      "primary_title": "Man Happenings",
+      "dates": "ca. 1970",
+      "forms": [
+        "Compilations",
+        "Shorts"
+      ]
+    }
+  },
+  {
+    "asset_title": "A very special friend",
+    "dates": "ca. 1968",
+    "languages": "English",
+    "asset_type": "Unknown",
+    "mms_id": "991168043506533",
+    "inventory_id": "209764",
+    "inventory_number": "M58774",
+    "file_name": "VerySpecial FriendFIXED_FINAL_HD_ProRes422HQ",
+    "storage_path": "000083/VerySpecial FriendFIXED_FINAL_HD_ProRes422HQ",
+    "HasSource": "VerySpecial FriendFIXED_HD_ProRes422HQ",
+    "isInstanceOf": {
+      "primary_title": "A very special friend",
+      "dates": "ca. 1968",
+      "directors": [
+        "Pat Rocco"
+      ],
+      "forms": [
+        "Shorts"
+      ]
+    },
+    "isContainedIn": {
+      "primary_title": "Man Happenings",
+      "dates": "ca. 1970",
+      "forms": [
+        "Compilations",
+        "Shorts"
+      ]
+    }
+  }
+]
