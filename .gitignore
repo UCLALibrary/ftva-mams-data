@@ -183,5 +183,8 @@ cython_debug/
 # Allow devcontainer json
 !.devcontainer/*.json
 
+# Allow explicit sample data documents, via directory
+!sample_documents/*
+
 # Config files with secrets
 *secret*
