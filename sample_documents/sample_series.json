@@ -1,7 +1,7 @@
 [
   {
     "__ak_comment": "row 863, Tapes google sheet; Safety Storage research loc in Alma",
-    "asset_title": "Forbidden area",
+    "asset_title": "Forbidden area 01-01",
     "dates": "1956-10-04",
     "languages": "English",
     "asset_type": "Unknown",
@@ -11,29 +11,24 @@
     "file_name": "T134238_Playhouse90_ForbiddenArea_CaptureFiles_SD_2997FPS_YUV",
     "storage_path": "820010/T134238_Playhouse90_ForbiddenArea",
     "vault_location": "S217-01A-12A",
-    "carriers": [
-      "820010",
-      "820011"
-    ],
+    "carriers": ["820010", "820011"],
     "hasGeneration": "T134238_Playhouse90_ForbiddenArea_ExhibitionVersion_SD_2997FPS_YUV",
     "isInstanceOf": {
-      "episode_title": "Forbidden area",
+      "collection_identifier": "123456789",
+      "episode_title": "Forbidden area 01-01",
       "episode_number": "01-01",
-      "directors": [
-        "John Frankenheimer"
-      ]
-    },
-    "isPartOf": {
-      "series_title": "Playhouse 90",
-      "dates": "1950-1960",
-      "forms": [
-        "Television series"
-      ]
+      "directors": ["John Frankenheimer"],
+      "isPartOf": {
+        "collection_identifier": "987654321",
+        "series_title": "Playhouse 90",
+        "dates": "1950-1960",
+        "forms": ["Television series"]
+      }
     }
   },
   {
     "__ak_comment": "row 864, Tapes google sheet; Safety Storage research loc in Alma",
-    "asset_title": "Forbidden area",
+    "asset_title": "Forbidden area 01-01",
     "dates": "1956-10-04",
     "languages": "English",
     "asset_type": "Unknown",
@@ -43,24 +38,19 @@
     "file_name": "T134238_Playhouse90_ForbiddenArea_ExhibitionVersion_SD_2997FPS_YUV",
     "storage_path": "820010/T134238_Playhouse90_ForbiddenArea",
     "vault_location": "S217-01A-12A",
-    "carriers": [
-      "820010",
-      "820011"
-    ],
+    "carriers": ["820010", "820011"],
     "isGenerationOf": "T134238_Playhouse90_ForbiddenArea_CaptureFiles_SD_2997FPS_YUV",
     "isInstanceOf": {
-      "episode_title": "Forbidden area",
+      "collection_identifier": "123456789",
+      "episode_title": "Forbidden area 01-01",
       "episode_number": "01-01",
-      "directors": [
-        "John Frankenheimer"
-      ]
-    },
-    "isPartOf": {
-      "series_title": "Playhouse 90",
-      "dates": "1950-1960",
-      "forms": [
-        "Television series"
-      ]
+      "directors": ["John Frankenheimer"],
+      "isPartOf": {
+        "collection_identifier": "987654321",
+        "series_title": "Playhouse 90",
+        "dates": "1950-1960",
+        "forms": ["Television series"]
+      }
     }
   }
 ]
