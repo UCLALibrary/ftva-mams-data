@@ -10,19 +10,12 @@
     "file_name": "M25441_ManHappenings_CaptureFiles_HD_ProRes422HQ",
     "storage_path": "820015/M25441_ManHappenings_CaptureFiles_HD_ProRes422HQ",
     "isInstanceOf": {
+      "collection_identifier": "123",
       "primary_title": "Man Happenings",
       "dates": "ca. 1970",
-      "directors": [
-        "Pat Rocco"
-      ],
-      "forms": [
-        "Compilations",
-        "Shorts"
-      ],
-      "Contains": [
-        "The groovy guy",
-        "A very special friend"
-      ]
+      "directors": ["Pat Rocco"],
+      "forms": ["Compilations", "Shorts"],
+      "Contains": ["456", "789"]
     }
   },
   {
@@ -36,23 +29,17 @@
     "file_name": "M58710_GroovyGuy_PicORIG_Kodachrome_24fps_2K_ProRes422HQ",
     "storage_path": "000083/M58710_GroovyGuy_PicORIG_Kodachrome_24fps_2K_ProRes422HQ",
     "isInstanceOf": {
+      "collection_identifier": "456",
       "primary_title": "The groovy guy",
       "dates": "ca. 1969",
-      "directors": [
-        "Pat Rocco"
-      ],
-      "forms": [
-        "Shorts",
-        "Documentary"
-      ]
+      "directors": ["Pat Rocco"],
+      "forms": ["Shorts", "Documentary"]
     },
     "isContainedIn": {
+      "collection_identifier": "123",
       "primary_title": "Man Happenings",
       "dates": "ca. 1970",
-      "forms": [
-        "Compilations",
-        "Shorts"
-      ]
+      "forms": ["Compilations", "Shorts"]
     }
   },
   {
@@ -66,23 +53,17 @@
     "file_name": "M62018_GroovyGuy_FadedColorRev_OutofSyncWSound_2K_ProRes422HQ",
     "storage_path": "000083/M62018_GroovyGuy_FadedColorRev_OutofSyncWSound_2K_ProRes422HQ",
     "isInstanceOf": {
+      "collection_identifier": "456",
       "primary_title": "The groovy guy",
       "dates": "ca. 1969",
-      "directors": [
-        "Pat Rocco"
-      ],
-      "forms": [
-        "Shorts",
-        "Documentary"
-      ]
+      "directors": ["Pat Rocco"],
+      "forms": ["Shorts", "Documentary"]
     },
     "isContainedIn": {
+      "collection_identifier": "123",
       "primary_title": "Man Happenings",
       "dates": "ca. 1970",
-      "forms": [
-        "Compilations",
-        "Shorts"
-      ]
+      "forms": ["Compilations", "Shorts"]
     }
   },
   {
@@ -97,23 +78,17 @@
     "storage_path": "000083/M58940_GroovyGuy_ColorRevWSound_2K_ProRes422HQ",
     "isGenerationOf": "M58940_GroovyGuy_ColorRevWSound_SD_24fps",
     "isInstanceOf": {
+      "collection_identifier": "456",
       "primary_title": "The groovy guy",
       "dates": "ca. 1969",
-      "directors": [
-        "Pat Rocco"
-      ],
-      "forms": [
-        "Shorts",
-        "Documentary"
-      ]
+      "directors": ["Pat Rocco"],
+      "forms": ["Shorts", "Documentary"]
     },
     "isContainedIn": {
+      "collection_identifier": "123",
       "primary_title": "Man Happenings",
       "dates": "ca. 1970",
-      "forms": [
-        "Compilations",
-        "Shorts"
-      ]
+      "forms": ["Compilations", "Shorts"]
     }
   },
   {
@@ -128,23 +103,17 @@
     "storage_path": "000083/M58940_GroovyGuy_ColorRevWSound_SD_24fp",
     "HasGeneration": "M58940_GroovyGuy_ColorRevWSound_2K_ProRes422HQ",
     "isInstanceOf": {
+      "collection_identifier": "456",
       "primary_title": "The groovy guy",
       "dates": "ca. 1969",
-      "directors": [
-        "Pat Rocco"
-      ],
-      "forms": [
-        "Shorts",
-        "Documentary"
-      ]
+      "directors": ["Pat Rocco"],
+      "forms": ["Shorts", "Documentary"]
     },
     "isContainedIn": {
+      "collection_identifier": "123",
       "primary_title": "Man Happenings",
       "dates": "ca. 1970",
-      "forms": [
-        "Compilations",
-        "Shorts"
-      ]
+      "forms": ["Compilations", "Shorts"]
     }
   },
   {
@@ -159,22 +128,17 @@
     "storage_path": "000083/VerySpecial FriendFIXED_HD_ProRes422HQ",
     "IsSourceof": "VerySpecial FriendFIXED_FINAL_HD_ProRes422HQ",
     "isInstanceOf": {
+      "collection_identifier": "789",
       "primary_title": "A very special friend",
       "dates": "ca. 1968",
-      "directors": [
-        "Pat Rocco"
-      ],
-      "forms": [
-        "Shorts"
-      ]
+      "directors": ["Pat Rocco"],
+      "forms": ["Shorts"]
     },
     "isContainedIn": {
+      "collection_identifier": "123",
       "primary_title": "Man Happenings",
       "dates": "ca. 1970",
-      "forms": [
-        "Compilations",
-        "Shorts"
-      ]
+      "forms": ["Compilations", "Shorts"]
     }
   },
   {
@@ -189,22 +153,17 @@
     "storage_path": "000083/VerySpecial FriendFIXED_FINAL_HD_ProRes422HQ",
     "HasSource": "VerySpecial FriendFIXED_HD_ProRes422HQ",
     "isInstanceOf": {
+      "collection_identifier": "789",
       "primary_title": "A very special friend",
       "dates": "ca. 1968",
-      "directors": [
-        "Pat Rocco"
-      ],
-      "forms": [
-        "Shorts"
-      ]
+      "directors": ["Pat Rocco"],
+      "forms": ["Shorts"]
     },
     "isContainedIn": {
+      "collection_identifier": "123",
       "primary_title": "Man Happenings",
       "dates": "ca. 1970",
-      "forms": [
-        "Compilations",
-        "Shorts"
-      ]
+      "forms": ["Compilations", "Shorts"]
     }
   }
 ]
