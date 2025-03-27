@@ -24,7 +24,7 @@ USER ftva_data
 COPY --chown=ftva_data:ftva_data . .
 
 # Include local python bin into ftva_data user's path, mostly for pip
-ENV PATH /home/ftva_data/.local/bin:${PATH}
+ENV PATH=/home/ftva_data/.local/bin:${PATH}
 
 # Make sure pip is up to date, and don't complain if it isn't yet
 RUN pip install --upgrade pip --disable-pip-version-check
