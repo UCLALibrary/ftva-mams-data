@@ -43,7 +43,25 @@ $ docker compose run ftva_data bash
 $ docker compose run ftva_data python
 ```
 
-Some data sources require API keys. Get a copy of the relevant configuration file from a teammate and put it in the top level directory of the project.
+### Secrets
+
+Some data sources require API keys or other secrets. Get a copy of the relevant configuration file from a teammate and put it in the top level directory of the project.
+
+The config file currently looks like this (with secret values redacted):
+```
+[alma_config]
+alma_api_key = "SECRET"
+analytics_api_key = "SECRET"
+ftva_holdings_report =  "/shared/University of California Los Angeles (UCLA) 01UCS_LAL/Cataloging/Reports/API/FTVA Holdings"
+
+[filemaker]
+api_version="vLatest"
+database="Inventory for Labeling"
+layout="InventoryForLabeling_ReadOnly_API"
+password="YOUR_PASSWORD"
+url = "https://adam.cinema.ucla.edu"
+user="YOUR_NAME"
+```
 
 ## Scripts
 
