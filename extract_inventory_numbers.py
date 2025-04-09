@@ -20,7 +20,8 @@ def _compile_regex() -> re.Pattern:
     # Return a compiled RegEx pattern for matching inventory numbers
     # the RegEx is comprised of three main parts, which are explained inline below
     regex_components = [
-        r'(?:M|T|DVD|HFA|VA|XFE|XFF|XVE)',  # non-capturing group of 8 prefixes defined by FTVA
+        r'(?<![A-Z])',  # pattern not preceded by capital letter, to mitigate false positives
+        r'(?:M|T|DVD|FE|HFA|VA|XFE|XFF|XVE)',  # non-capturing group of 8 prefixes defined by FTVA
         r'\d+',  # 1 or more digits, as many as possible
         r'(?:[A-Z](?![A-Za-z]))?'  # optional suffix 1 capital letter not followed by another letter
     ]
@@ -28,38 +29,19 @@ def _compile_regex() -> re.Pattern:
     return re.compile(''.join(regex_components))
 
 
-def _extract_inventory_numbers(df: pd.DataFrame) -> pd.DataFrame:
+def _extract_inventory_numbers(
+        value: str,
+        inventory_number_pattern: re.Pattern = _compile_regex()
+) -> str:
+    """Returns a pipe-delimited list of matches against provided pattern."""
+    if not isinstance(value, str):
+        return
 
-    inventory_number_pattern = _compile_regex()
-
-    # Priority in which to consider columns,
-    # per instructions from FTVA
-    column_priority = ('Source Inventory #', 'File Name', 'Sub Folder', 'File Folder Name')
-    existing_inventory_number_values = []
-
-    for index, row in df.iterrows():
-        # The header row in the source spreadsheet is repeated many times
-        # as if multiple sheets were appended together
-        # this condition checks if the current value in the Inventory # column is:
-        # 1) not a header, and;
-        # 2) not NaN
-        # meaning it is some other value
-        # row indexes for any such values are then appended to a list to be printed for reference
-        if (not row['Inventory #'] == 'Inventory #') and (not pd.isna(row['Inventory #'])):
-            existing_inventory_number_values.append(index)
-
-        for column in column_priority:
-            if not isinstance(row[column], str):
-                continue
-
-            matches = re.findall(inventory_number_pattern, row[column])
-            if matches:
-                # per FTVA spec, provide pipe-delimited string
-                # if multiple matches in a single input value
-                row['Inventory #'] = '|'.join(matches)
-                break  # we only want the first match in a row
-    print(df.iloc[existing_inventory_number_values]['Inventory #'])
-    return df
+    matches = re.findall(inventory_number_pattern, value)
+    if matches:
+        # per FTVA spec, provide pipe-delimited string
+        # if multiple matches in a single input value
+        return '|'.join(set(matches))  # using set() to provide only unique inv #s
 
 
 def main() -> None:
@@ -70,12 +52,16 @@ def main() -> None:
     if not input_file_path.exists():
         raise FileExistsError("Data file does not exist")
 
-    df = pd.read_excel(args.data_file, sheet_name='Source Data', header=1)
-    df_with_inventory_numbers = _extract_inventory_numbers(df)
+    # The target sheet and column are hard-coded here
+    # might want to move to set them up as arguments later
+    df = pd.read_excel(args.data_file, sheet_name='Tapes(row 4560-24712)')
+    # Using Pandas Series.apply() method here to apply function to target column
+    # and store results in a new column
+    df["Inventory Number [EXTRACTED]"] = df["Legacy Path"].apply(_extract_inventory_numbers)
 
     # Save new XLSX file with extracted inventory numbers
     output_path = Path(args.data_file).with_stem(input_file_path.stem + "_with_inventory_numbers")
-    df_with_inventory_numbers.to_excel(output_path, index=False)
+    df.to_excel(output_path, index=False)
 
 
 if __name__ == "__main__":
