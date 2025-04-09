@@ -51,6 +51,10 @@ Some data sources require API keys. Get a copy of the relevant configuration fil
 
 ```python get_ftva_holdings_report.py [-h] --config_file CONFIG_FILE --output_file OUTPUT_FILE```
 
+### Proof of concept for Filemaker API (find and display data)
+
+```python filemaker_api_test.py [-h] --config_file CONFIG_FILE```
+
 ### Extract duplicate rows from FTVA spreadsheet
 
 ```python extract_duplicate_rows.py --data_file SPREADSHEET.xlsx [--tapes_tab_name TAB_NAME] [--output_duplicate_path OUTPUT_PATH.xlsx] [--remove_duplicates]```
