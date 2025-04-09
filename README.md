@@ -50,3 +50,13 @@ Some data sources require API keys. Get a copy of the relevant configuration fil
 ### Retrieve FTVA holdings data from Alma
 
 ```python get_ftva_holdings_report.py [-h] --config_file CONFIG_FILE --output_file OUTPUT_FILE```
+
+### Extract duplicate rows from FTVA spreadsheet
+
+```python extract_duplicate_rows.py --data_file SPREADSHEET.xlsx [--tapes_tab_name TAB_NAME] [--output_duplicate_path OUTPUT_PATH.xlsx] [--remove_duplicates]```
+
+This script extracts duplicate rows from the Tapes tab of the FTVA spreadsheet based on the "Legacy Path" column. Duplicate rows will be saved to the file specified by `--output_duplicate_path` (defaults to `duplicate_rows.xlsx` in the current directory).
+
+If `--tapes_tab_name` is specified, the script will look for the tab with that name within the spreadsheet. Otherwise, it will look for a tab named "Tapes(row 4560-24712)".
+
+If `--remove_duplicates` is specified, the script will remove the duplicate rows from the original spreadsheet and save it in place. Otherwise the original spreadsheet will not be modified.
