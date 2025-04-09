@@ -48,17 +48,15 @@ def _format_duplicate_rows(duplicate_rows: pd.DataFrame) -> pd.DataFrame:
     # which causes pandas to raise a SettingWithCopyWarning
     duplicate_rows = duplicate_rows.copy()
     # Add a new column with the original row index
-    duplicate_rows.reset_index(inplace=True)
+    duplicate_rows.reset_index(inplace=True, names="Original Row Number")
     # increment each index by 2 to match the original spreadsheet
     # (1 based index, plus header row)
-    duplicate_rows["index"] += 2
-    # rename the index column
-    duplicate_rows.rename(columns={"index": "Original Row Number"}, inplace=True)
+    duplicate_rows["Original Row Number"] += 2
 
     return duplicate_rows
 
 
-def _remove_duplicates_from_df(df: pd.DataFrame, tapes_tab_name: str) -> pd.DataFrame:
+def _remove_duplicates_from_df(df: pd.DataFrame) -> pd.DataFrame:
     """Remove duplicate rows from the DataFrame."""
     # Remove duplicates based on 'Legacy Path' column, keeping the first occurrence
     # and dropping the rest
@@ -71,8 +69,8 @@ def _remove_duplicates_from_spreadsheet(
 ) -> None:
     """Remove duplicate rows from the DataFrame and save it back to the spreadsheet."""
     # Remove duplicates from the DataFrame
-    df = _remove_duplicates_from_df(df, tapes_tab_name)
-    # Save the cleaned DataFrame back to the spreadsheet
+    df = _remove_duplicates_from_df(df)
+    # Save the cleaned DataFrame back to the spreadsheet;
     # only overwrite the specified tab, and keep the rest of the spreadsheet intact
     with pd.ExcelWriter(
         data_file_path, engine="openpyxl", mode="a", if_sheet_exists="replace"

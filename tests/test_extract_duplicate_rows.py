@@ -82,7 +82,7 @@ class TestRemoveDuplicatesFromDf(unittest.TestCase):
         )
 
     def test_remove_duplicates_from_df(self):
-        cleaned_df = _remove_duplicates_from_df(self.df_with_duplicates, "Tapes")
+        cleaned_df = _remove_duplicates_from_df(self.df_with_duplicates)
         expected_df = pd.DataFrame(
             {
                 "Legacy Path": [
@@ -97,5 +97,5 @@ class TestRemoveDuplicatesFromDf(unittest.TestCase):
         pd.testing.assert_frame_equal(cleaned_df, expected_df)
 
     def test_remove_duplicates_from_df_no_duplicates(self):
-        cleaned_df = _remove_duplicates_from_df(self.df_without_duplicates, "Tapes")
+        cleaned_df = _remove_duplicates_from_df(self.df_without_duplicates)
         pd.testing.assert_frame_equal(cleaned_df, self.df_without_duplicates)
