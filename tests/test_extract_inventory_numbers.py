@@ -1,6 +1,5 @@
 import unittest
-import re
-from extract_inventory_numbers import _compile_regex
+from extract_inventory_numbers import _extract_inventory_numbers
 
 
 class TestRegEx(unittest.TestCase):
@@ -30,10 +29,18 @@ class TestRegEx(unittest.TestCase):
             (
                 "M46293SanFernandoCLEANEXPORT3",
                 "M46293"
-            )  # contains valid inv # (M46293), but also look-alike (T3)
+            ),  # contains valid inv # (M46293), but also look-alike (T3)
+            # flake8 flagged escape seq (\T), hence raw strings in following cases
+            (
+                r"AAC424\T70123_50Years_Kids_Programming\T70123_50Years_T1",
+                "T70123"
+            ),  # per FTVA, inv #s have 2 or more digits, so T70123 is good, but T1 is invalid
+            (
+                r"AAC442\Title_T01ASYNC_Surround",
+                "T01"
+            )  # known false positive--T01 is syntactically valid, but not actual inv #, per FTVA
         )
 
-        inventory_number_pattern = _compile_regex()
         for input, output in test_cases:
-            matches = re.findall(inventory_number_pattern, input)
-            self.assertEqual('|'.join(matches), output)
+            inventory_numbers = _extract_inventory_numbers(input)
+            self.assertEqual(inventory_numbers, output)

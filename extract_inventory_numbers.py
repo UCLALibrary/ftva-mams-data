@@ -19,10 +19,16 @@ def _get_args() -> argparse.Namespace:
 def _compile_regex() -> re.Pattern:
     # Return a compiled RegEx pattern for matching inventory numbers
     # the RegEx is comprised of three main parts, which are explained inline below
+    #
+    # NOTE: the pattern works in most cases, but will return false positives
+    # where the input contains a substring that syntactically matches pattern
+    # but is not actually a valid inventory number, according to FTVA
+    # e.g. AAC442\Title_T01ASYNC_Surround matches T01, which is a valid pattern,
+    # but not an actual inventory number
     regex_components = [
         r'(?<![A-Z])',  # pattern not preceded by capital letter, to mitigate false positives
         r'(?:M|T|DVD|FE|HFA|VA|XFE|XFF|XVE)',  # non-capturing group of 8 prefixes defined by FTVA
-        r'\d+',  # 1 or more digits, as many as possible
+        r'\d{2,}',  # 2 or more digits, as many as possible
         r'(?:[A-Z](?![A-Za-z]))?'  # optional suffix 1 capital letter not followed by another letter
     ]
 
@@ -41,7 +47,10 @@ def _extract_inventory_numbers(
     if matches:
         # per FTVA spec, provide pipe-delimited string
         # if multiple matches in a single input value
-        return '|'.join(set(matches))  # using set() to provide only unique inv #s
+        # uses dict.fromkeys() to get unique values
+        # while maintaining list order
+        return '|'.join(list(dict.fromkeys(matches)))
+    return ''
 
 
 def main() -> None:
