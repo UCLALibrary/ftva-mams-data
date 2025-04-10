@@ -82,3 +82,9 @@ This script extracts duplicate rows from the Tapes tab of the FTVA spreadsheet b
 If `--tapes_tab_name` is specified, the script will look for the tab with that name within the spreadsheet. Otherwise, it will look for a tab named "Tapes(row 4560-24712)".
 
 If `--remove_duplicates` is specified, the script will remove the duplicate rows from the original spreadsheet and save it in place. Otherwise the original spreadsheet will not be modified.
+
+### Extract inventory numbers from FTVA spreadsheet
+
+```python extract_inventory_numbers.py --data_file SPREADSHEET.xlsx```
+
+This script extracts inventory numbers from the values of the "Legacy Path" column in the Tapes tab of the FTVA spreadsheet. The script generates a copy of the input spreadsheet with a column appended named `Inventory Number [EXTRACTED]`, with matched inventory numbers. The copy is saved with the name `SPREADSHEET_with_inventory_numbers.xlsx` in the same directory as the input spreadsheet.

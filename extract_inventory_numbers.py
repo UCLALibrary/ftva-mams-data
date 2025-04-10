@@ -45,11 +45,23 @@ def _extract_inventory_numbers(
 
     matches = re.findall(inventory_number_pattern, value)
     if matches:
-        # per FTVA spec, provide pipe-delimited string
-        # if multiple matches in a single input value
         # uses dict.fromkeys() to get unique values
         # while maintaining list order
-        return '|'.join(list(dict.fromkeys(matches)))
+        unique_inventory_numbers = list(dict.fromkeys(matches))
+
+        # NOTE: hard-coding a list of known false positives here
+        # i.e. strings that match pattern but are known to not be actual inv #s
+        # this could be made into a script argument later
+        #
+        # if such values exist in list of unique inv #s, remove them
+        known_false_positives = ["T01"]
+        for false_positive in known_false_positives:
+            if false_positive in unique_inventory_numbers:
+                unique_inventory_numbers.remove(false_positive)
+
+        # per FTVA spec, provide pipe-delimited string
+        # if multiple matches in a single input value
+        return '|'.join(unique_inventory_numbers)
     return ''
 
 

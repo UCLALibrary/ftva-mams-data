@@ -37,8 +37,9 @@ class TestRegEx(unittest.TestCase):
             ),  # per FTVA, inv #s have 2 or more digits, so T70123 is good, but T1 is invalid
             (
                 r"AAC442\Title_T01ASYNC_Surround",
-                "T01"
+                ""
             )  # known false positive--T01 is syntactically valid, but not actual inv #, per FTVA
+               # script should remove these
         )
 
         for input, output in test_cases:
