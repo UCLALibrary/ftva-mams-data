@@ -65,6 +65,10 @@ user="YOUR_NAME"
 
 ## Scripts
 
+### Retrieve all Filemaker records
+
+```python filemaker_get_all_records.py --config_file CONFIG_FILE```
+
 ### Retrieve FTVA holdings data from Alma
 
 ```python get_ftva_holdings_report.py [-h] --config_file CONFIG_FILE --output_file OUTPUT_FILE```
