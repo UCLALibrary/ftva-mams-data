@@ -74,7 +74,11 @@ def main() -> None:
                 # For now, ignore the "portal" fields, which are of
                 # type fmrest.foundset.Foundset and contain 0-many other records.
                 # The only relevant field is "portal_Labeling Database_InvID".
+                # TODO: Handle this field correctly.
                 record = fm_record.to_dict(ignore_portals=True)
+                # TODO: Consider replacing embedded 'u\xa0' here; not clear
+                # if this is limited to inventory numbers or more fields, which
+                # require different handling.
                 current_batch.append(record)
             all_records.extend(current_batch)
             start += limit
