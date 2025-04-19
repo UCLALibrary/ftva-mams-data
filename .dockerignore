@@ -1,0 +1,13 @@
+# Data files, unless otherwise excepted
+*.csv
+*.json
+*.mrc
+*.tsv
+*.txt
+*.xlsx
+*.xls
+*.xml
+
+# Allow requirements.txt, for pip installation
+!requirements.txt
+
