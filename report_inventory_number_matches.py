@@ -1,10 +1,14 @@
 import argparse
 import csv
 import json
-from pathlib import Path
 import pandas as pd
-from collections import Counter
-from itertools import chain
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import TypeAlias
+
+# For simpler function signatures
+id_dict: TypeAlias = dict[str, list[str]]
+named_id_dict: TypeAlias = dict[str, id_dict]
 
 
 def _get_args() -> argparse.Namespace:
@@ -29,76 +33,113 @@ def _get_args() -> argparse.Namespace:
     return args
 
 
-def _get_alma_identifiers(filename: str) -> list[str]:
+def _get_alma_identifiers(filename: str) -> id_dict:
+    """Returns a dict keyed on the normalized Alma permanent call number,
+    along with a list of the Alma holdings id(s) associated with that key.
+    """
     with open(filename, "r") as f:
         alma_data = csv.DictReader(f)
         alma_data = [row for row in alma_data]
-    # Many Alma values have spaces; remove them.
-    alma_identifiers = [
-        row["Permanent Call Number"].replace(" ", "") for row in alma_data
-    ]
+    alma_identifiers = defaultdict(list)
+    for row in alma_data:
+        # Many Alma values have spaces; remove them.
+        inventory_no = row["Permanent Call Number"].replace(" ", "")
+        alma_identifiers[inventory_no].append(row["Holding Id"])
+
+    print_summary_counts(alma_identifiers, "Alma inventory numbers")
     return alma_identifiers
 
 
-def _get_filemaker_identifiers(filename: str) -> list[str]:
+def _get_filemaker_identifiers(filename: str) -> id_dict:
+    """Returns a dict keyed on the normalized Filemaker inventory number,
+    along with a list of the Filemaker record id(s) associated with that key.
+    """
     with open(filename, "r") as f:
         filemaker_data = json.load(f)
     # Some Filemaker inventory numbers end with (or in 1 case, contain...)
     # u'\xa0', non-breaking space.  Almost certainly errors; remove this character.
-    filemaker_identifiers = [
-        row["inventory_no"].replace("\xa0", "") for row in filemaker_data
-    ]
+    filemaker_identifiers = defaultdict(list)
+    for row in filemaker_data:
+        inventory_no = row["inventory_no"].replace("\xa0", "")
+        filemaker_identifiers[inventory_no].append(row["recordId"])
+
+    print_summary_counts(filemaker_identifiers, "Filemaker inventory numbers")
     return filemaker_identifiers
 
 
-def _get_google_identifiers(filename: str) -> list[str]:
+def _get_google_identifiers(filename: str) -> id_dict:
+    """Returns a dict keyed on the normalized Google inventory number,
+    along with a list of row number(s) associated with that key.
+    """
     # The target sheet and column are hard-coded here;
-    # might want to move to set them up as arguments later.
+    # might want to make them arguments later.
     df = pd.read_excel(filename, sheet_name="Tapes(row 4560-24712)", dtype="string")
     # Convert the missing (None) values to empty strings for the column we need.
     df = df.fillna(value={"Inventory Number [EXTRACTED]": ""})
-    # Convert the dataframe to a list of dictionaries, one for each row.
-    google_data = df.to_dict(orient="records")
-    # Some Google cells have multiple values, pipe-delimited; separate them.
-    cells = [row["Inventory Number [EXTRACTED]"].split("|") for row in google_data]
-    # cells is now a list of lists, like [["M123"], [""], ["M234", "M345"]]
-    # Unpack this into a flat list of all values.  Using itertools.chain is arguably
-    # easier to understand than nested list comprehension, plus it's cool....
-    google_identifiers = [*chain(*cells)]
+    google_identifiers = defaultdict(list)
+    for index, row in df.iterrows():
+        # Some Google cells have multiple values, pipe-delimited; separate them.
+        inventory_nos = row["Inventory Number [EXTRACTED]"].split("|")
+        for inventory_no in inventory_nos:
+            # dataframe indexes are 0-based, and there's a header row in the sheet;
+            # add 2 to index to get row number shown in actual sheet.
+            google_identifiers[inventory_no].append(index + 2)
+
+    print_summary_counts(google_identifiers, "Google inventory numbers")
     return google_identifiers
 
 
-def _get_singletons(data: list) -> set[str]:
-    """Returns a set of values which occur only once in the input list."""
-    counts = Counter(data)
-    return {value for value, count in counts.items() if count == 1}
-
-
-def get_perfect_matches(data: list[set[str]]) -> set[str]:
-    """Given a list of sets, return a set containing values
-    which occur only once in all of the input set.
+def _get_singletons(data: id_dict) -> set[str]:
+    """Returns a set of id keys (inventory numbers) which occur only once
+    in their source data.
     """
-    return set.intersection(*data)
-    pass
+    return {key for key, val in data.items() if len(val) == 1}
 
 
-def print_summary_counts(data: list, data_description: str) -> None:
-    total_count = len(data)
-    unique_count = len(set(data))
+def print_summary_counts(data: id_dict, data_description: str) -> None:
+    """Prints various counts about the given data."""
+    total_count = sum([len(val) for val in data.values()])
+    distinct_count = len(data)
     singleton_count = len(_get_singletons(data))
-    empty_count = len([val for val in data if not val])
+    # Many Google sheet records have no inventory number, though Alma and FM data always do.
+    empty_count = len(data[""])
     print(
         f"Counts for {data_description}: {total_count} total, "
-        f"{unique_count} unique, {singleton_count} singletons, {empty_count} empty"
+        f"{distinct_count} distinct, {singleton_count} singletons, {empty_count} empty"
     )
 
 
-def print_match_counts(
-    alma_identifiers: list, filemaker_identifiers: list, google_identifiers: list
+def report_perfect_matches(
+    data: list[set[str]], message: str, report_filename: str, sheet_name: str
 ) -> None:
-    # Report the 1-to-1 and 1-to-1-to-1 matches first.
-    # alma_singletons = _get_singletons(alma_identifiers)
-    pass
+    """Given a list of sets, report on the "perfect matches":
+    the values which occur in all of the input sets.
+    """
+    matches = set.intersection(*data)
+    print(f"{message}: {len(matches)}")
+    write_excel_report(filename=report_filename, sheet_name=sheet_name, data=matches)
+
+
+def report_unmatched(data: list[named_id_dict]) -> None:
+    """Given a list of named dictionaries, report on the keys (and their values)
+    where the key occurs in only one of the dictionaries.
+    """
+    # Find the keys which occur just once across all input dictionaries.
+    # Each input dictionary has a single key, like {"alma": id_dict};
+    # here, we need the keys from id_dict, the value in the named_id_dict.
+    # Example data:
+    # [
+    #   {'alma': {'inv_no_1': [1, 2, 3]}},
+    #   {'google': {'inv_no_1': [4, 5, 6], 'inv_no_2': [7, 8, 9]}}
+    # ]
+    # Result: [inv_no_1, inv_no_1, inv_no_2]
+    all_inventory_nos = [
+        key for dict in data for nested_dict in dict for key in nested_dict
+    ]
+    unmatched_inventory_nos = [
+        key for key, val in Counter(all_inventory_nos).items() if val == 1
+    ]
+    # Now, for each of the input dictionaries, get the
 
 
 def write_excel_report(
@@ -131,45 +172,53 @@ def main() -> None:
     args = _get_args()
 
     alma_identifiers = _get_alma_identifiers(args.alma_file)
-    print_summary_counts(alma_identifiers, "Alma inventory numbers")
-
     filemaker_identifiers = _get_filemaker_identifiers(args.filemaker_data_file)
-    print_summary_counts(filemaker_identifiers, "Filemaker inventory numbers")
-
     google_identifiers = _get_google_identifiers(args.google_file)
-    print_summary_counts(google_identifiers, "Google inventory numbers")
-
-    print_match_counts(alma_identifiers, filemaker_identifiers, google_identifiers)
 
     alma_singletons = _get_singletons(alma_identifiers)
     filemaker_singletons = _get_singletons(filemaker_identifiers)
     google_singletons = _get_singletons(google_identifiers)
 
+    # We don't need these large full data sets any more; rmeove from memory.
+    del (alma_identifiers, filemaker_identifiers, google_identifiers)
+
     report_filename = "inventory_number_matches.xlsx"
 
-    matches = get_perfect_matches(
-        [alma_singletons, filemaker_singletons, google_singletons]
-    )
-    print(f"Perfect matches for all 3 sources: {len(matches)}")
-    write_excel_report(
-        filename=report_filename, sheet_name="All 3 sources", data=matches
-    )
-
-    matches = get_perfect_matches([alma_singletons, filemaker_singletons])
-    print(f"Perfect matches for Alma and Filemaker: {len(matches)}")
-    write_excel_report(
-        filename=report_filename, sheet_name="Alma and FM only", data=matches
+    report_perfect_matches(
+        data=[alma_singletons, filemaker_singletons, google_singletons],
+        message="Perfect matches for all 3 sources",
+        report_filename=report_filename,
+        sheet_name="All 3 sources",
     )
 
-    # matches = get_perfect_matches([alma_singletons, google_singletons])
-    # print(f"Perfect matches for Alma and Google: {len(matches)}")
-    # matches = get_perfect_matches([filemaker_singletons, google_singletons])
-    # print(f"Perfect matches for Filemaker and Google: {len(matches)}")
+    report_perfect_matches(
+        data=[alma_singletons, filemaker_singletons],
+        message="Perfect matches for Alma and Filemaker",
+        report_filename=report_filename,
+        sheet_name="Alma and FM only",
+    )
 
-    # python report_inventory_number_matches.py \
-    #     --alma_file ftva_holdings_20250417.csv \
-    #     --filemaker_data_file filemaker_data_20250416_214936.json \
-    #     --google_file google_sheet_20250416.xlsx
+    report_perfect_matches(
+        data=[alma_singletons, google_singletons],
+        message="Perfect matches for Alma and Google",
+        report_filename=report_filename,
+        sheet_name="Alma and Google only",
+    )
+
+    report_perfect_matches(
+        data=[filemaker_singletons, google_singletons],
+        message="Perfect matches for Filemaker and Google",
+        report_filename=report_filename,
+        sheet_name="FM and Google only",
+    )
+
+    report_unmatched(data=[alma_singletons, filemaker_singletons, google_singletons])
+
+
+# python report_inventory_number_matches.py \
+#     --alma_file ftva_holdings_20250417.csv \
+#     --filemaker_data_file filemaker_data_20250416_214936.json \
+#     --google_file google_sheet_20250416.xlsx
 
 
 if __name__ == "__main__":
