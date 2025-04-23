@@ -64,11 +64,10 @@ def main() -> None:
     all_records = []
     fm_record: Record  # for typehints
     while start <= total_records:
-        print(datetime.now())
+        print("START:", datetime.now())
         print(f"Getting {limit} records starting at {start}...")
         try:
             results = fms.get_records(offset=start, limit=limit)
-            print(datetime.now())
             current_batch = []
             for rec_number, fm_record in enumerate(results, start=start):
                 # For now, ignore the "portal" fields, which are of
@@ -88,6 +87,7 @@ def main() -> None:
             # No more records, so break out of the while loop.
             break
 
+    print(f"Records retrieved: {len(all_records)}")
     _write_json(all_records)
     print("DONE:", datetime.now())
 
