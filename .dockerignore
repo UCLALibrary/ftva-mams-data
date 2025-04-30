@@ -7,6 +7,7 @@
 *.xlsx
 *.xls
 *.xml
+*.zip
 
 # Allow requirements.txt, for pip installation
 !requirements.txt
