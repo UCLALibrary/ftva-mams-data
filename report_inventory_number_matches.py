@@ -2,25 +2,35 @@ import argparse
 import csv
 import json
 import pandas as pd
-from collections import Counter, defaultdict
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
+from typing import TypeAlias
+
+# For simpler function signatures
+id_dict: TypeAlias = dict[str, list[str]]
 
 
 @dataclass
 class InventoryNumberData:
     """Class for simplifying management of large sets of
-    inventory numbers from legacy systems.
+    inventory numbers from legacy systems (Alma and Filemaker);
+    not used for Google Sheet data.
     """
 
+    # The source system, used for reporting.
     source_system: str
+    # What the identifier represents: holdings ids (Alma) or record ids (Filemaker).
+    identifier_label: str
     # Dictionary keyed on normalized inventory number, along with a list
     # of the record-specific identifier(s) associated with that key.
-    # These can be Alma holdings ids, Filemaker record ids, or Google Sheet
-    # row numbers.
-    identifiers: defaultdict[str, list[str]]
-    _singletons: set[str] = None
+    # These can be Alma holdings ids or Filemaker record ids.
+    identifiers: id_dict
+    # Keys in identifiers which are associated with one record in the source system.
+    _singletons: set[str] = field(default_factory=set)
+    # Keys in identifiers which are associated with multiple records in the source system.
+    _repeats: set[str] = field(default_factory=set)
 
     @cached_property
     # This gets used a few times, but doesn't change, so cache it.
@@ -28,18 +38,30 @@ class InventoryNumberData:
         self._singletons = self._get_singletons()
         return self._singletons
 
+    @cached_property
+    # This gets used a few times, but doesn't change, so cache it.
+    def repeats(self) -> set[str]:
+        self._repeats = self._get_repeats()
+        return self._repeats
+
     def _get_singletons(self) -> set[str]:
         """Returns a set of id keys (inventory numbers) which occur only once
         in their source data.
         """
         return {key for key, val in self.identifiers.items() if len(val) == 1}
 
+    def _get_repeats(self) -> set[str]:
+        """Returns a set of id keys (inventory numbers) which occur more than once
+        in their source data.
+        """
+        return {key for key, val in self.identifiers.items() if len(val) > 1}
+
     def print_summary_counts(self) -> None:
         """Prints various counts about the object's identifiers."""
         total_count = sum([len(val) for val in self.identifiers.values()])
         distinct_count = len(self.identifiers)
         singleton_count = len(self.singletons)
-        # Many Google sheet records have no inventory number, though Alma and FM data always do.
+        repeat_count = len(self.repeats)
         # self.identifiers is a defaultdict, so be careful querying it;
         # len(self.identifiers[""]) adds an entry, if "" is not already a key!
         if "" in self.identifiers:
@@ -47,9 +69,45 @@ class InventoryNumberData:
         else:
             empty_count = 0
         print(
-            f"Counts for {self.source_system} inventory numbers: {total_count} total, "
-            f"{distinct_count} distinct, {singleton_count} singletons, {empty_count} empty"
+            f"Counts for {self.source_system} inventory numbers: "
+            f"{total_count} total, {distinct_count} distinct, "
+            f"{repeat_count} repeats, {singleton_count} singletons, {empty_count} empty."
         )
+
+
+@dataclass
+class ReportRow:
+    """Class representing one consistent row of data, which will eventually
+    be written to an Excel sheet.
+    """
+
+    inventory_number: str
+    original_value: str = None
+    # Columns of identifiers for both sources will be included in all sheets
+    # for consistency, but sometimes will not have data.
+    alma_identifiers: list[str] = field(default_factory=list)
+    filemaker_identifiers: list[str] = field(default_factory=list)
+
+    @property
+    def alma_count(self) -> int:
+        return len(self.alma_identifiers)
+
+    @property
+    def filemaker_count(self) -> int:
+        return len(self.filemaker_identifiers)
+
+    @property
+    def alma_delimited(self) -> str:
+        return ", ".join(self.alma_identifiers)
+
+    @property
+    def filemaker_delimited(self) -> str:
+        return ", ".join(self.filemaker_identifiers)
+
+
+#######################################
+# End of classes, start of main program
+#######################################
 
 
 def _get_args() -> argparse.Namespace:
@@ -82,13 +140,19 @@ def _get_alma_data(filename: str) -> InventoryNumberData:
     with open(filename, "r") as f:
         data = csv.DictReader(f)
         data = [row for row in data]
-    alma_identifiers = defaultdict(list)
+
+    # Use defaultdict for convenience adding / referencing keys.
+    alma_identifiers: id_dict = defaultdict(list)
     for row in data:
         # Many Alma values have spaces; remove them.
         inventory_no = row["Permanent Call Number"].replace(" ", "")
         alma_identifiers[inventory_no].append(row["Holding Id"])
 
-    alma_data = InventoryNumberData(source_system="Alma", identifiers=alma_identifiers)
+    alma_data = InventoryNumberData(
+        source_system="Alma",
+        identifier_label="Holdings IDs",
+        identifiers=alma_identifiers,
+    )
     alma_data.print_summary_counts()
     return alma_data
 
@@ -100,142 +164,212 @@ def _get_filemaker_data(filename: str) -> InventoryNumberData:
     """
     with open(filename, "r") as f:
         data = json.load(f)
-    # Some Filemaker inventory numbers end with (or in 1 case, contain...)
-    # u'\xa0', non-breaking space.  Almost certainly errors; remove this character.
-    filemaker_identifiers = defaultdict(list)
+
+    # Use defaultdict for convenience adding / referencing keys.
+    filemaker_identifiers: id_dict = defaultdict(list)
     for row in data:
+        # Some Filemaker inventory numbers end with (or in 1 case, contain)
+        # u'\xa0', non-breaking space.  Almost certainly errors; remove this character.
         inventory_no = row["inventory_no"].replace("\xa0", "")
         filemaker_identifiers[inventory_no].append(row["recordId"])
 
     filemaker_data = InventoryNumberData(
-        source_system="Filemaker", identifiers=filemaker_identifiers
+        source_system="Filemaker",
+        identifier_label="Record IDs",
+        identifiers=filemaker_identifiers,
     )
     filemaker_data.print_summary_counts()
     return filemaker_data
 
 
-def _get_google_data(filename: str) -> InventoryNumberData:
-    """Returns an InventoryNumberData object with data keyed on the
-    normalized Google inventory number, along with a list of the
-    row number(s) associated with that key.
-    """
+def _get_google_data(filename: str) -> set[str]:
+    """Returns a set of non-blank values for inventory numbers."""
     # The target sheet and column are hard-coded here;
     # might want to make them arguments later.
-    df = pd.read_excel(filename, sheet_name="Tapes(row 4560-24712)", dtype="string")
-    # Convert the missing (None) values to empty strings for the column we need.
-    df = df.fillna(value={"Inventory Number [EXTRACTED]": ""})
-    google_identifiers = defaultdict(list)
-    for index, row in df.iterrows():
-        # Some Google cells have multiple values, pipe-delimited; separate them.
-        inventory_nos = row["Inventory Number [EXTRACTED]"].split("|")
-        for inventory_no in inventory_nos:
-            # dataframe indexes are 0-based, and there's a header row in the sheet;
-            # add 2 to index to get row number shown in actual sheet.
-            # Convert these to string, same as the associated values from other sources.
-            google_identifiers[inventory_no].append(str(index + 2))
+    sheet_name = "Tapes(row 4560-24712)"
+    column_name = "Inventory Number [EXTRACTED]"
 
-    google_data = InventoryNumberData(
-        source_system="Google", identifiers=google_identifiers
+    df = pd.read_excel(filename, sheet_name=sheet_name, dtype="string")
+    total_count = len(df)
+    # Drop any rows where the inventory number is missing.
+    df.dropna(subset=column_name, inplace=True)
+    value_count = len(df)
+    empty_count = total_count - value_count
+
+    # Create a set with all raw inventory number values
+    unique_values = {row[column_name] for _, row in df.iterrows()}
+    unique_count = len(unique_values)
+    # Print summary, similar to InventoryNumberData.print_summary_counts().
+    multiple_value_count = len([v for v in unique_values if "|" in v])
+    single_value_count = unique_count - multiple_value_count
+    print(
+        f"Counts for Google Sheet inventory numbers: "
+        f"{total_count} total, {unique_count} distinct, "
+        f"{single_value_count} single values, {multiple_value_count} multiple values, "
+        f"{empty_count} empty."
     )
-    google_data.print_summary_counts()
-    return google_data
+
+    return unique_values
 
 
-def report_perfect_matches(
-    data: list[InventoryNumberData], message: str, report_filename: str, sheet_name: str
-) -> None:
-    """Given a list of InventoryNumberData objects, report on the "perfect matches":
-    the values which occur only once each, in all of the input data.
-    """
-    singletons = [obj.singletons for obj in data]
-    matches = set.intersection(*singletons)
-    print(f"{message}: {len(matches)}")
+def _create_dataframe_from_reportrows(data: list[ReportRow]) -> pd.DataFrame:
+    """Converts a list of ReportRow objects to a pandas dataframe."""
 
-    # Add it to the Excel file.
-    write_excel_report(filename=report_filename, sheet_name=sheet_name, data=matches)
+    # Sort the list of objects on inventory number; not precise, but good enough
+    # for these reports.
+    data.sort(key=lambda x: x.inventory_number)
 
+    # Convert the sorted input list to a list of lists, which is easier than looping
+    # over the input list and adding rows one at a time to a dataframe.
+    list_of_lists = [
+        [
+            record.inventory_number,
+            record.original_value,
+            record.alma_delimited,
+            record.filemaker_delimited,
+        ]
+        for record in data
+    ]
 
-def report_unmatched(data: list[InventoryNumberData], report_filename: str) -> None:
-    """Given a list of InventoryNumberData objects, report on the inventory numbers
-    (and their related identifiers) where the inventory number occurs in only one
-    of the dictionaries.
-    """
-    # These are not unique, across all sources.
-    all_inventory_nos = [key for obj in data for key in obj.identifiers]  # 814077
-    # TODO: Debug; why does 814077 not match 814075, total of "distinct" counts?
-    # print("In report unmatched, 2nd loop thru data")
-    # for obj in data:
-    #     print(obj.source_system, len(obj.identifiers))
-    #     obj.print_summary_counts()
+    # Column names are hard-coded as the data will always be the same here.
+    column_names = [
+        "Inventory Number",
+        "Original Value",
+        "Alma Holdings IDs",
+        "Filemaker Record IDs",
+    ]
 
-    # These are unique, and creating a set makes the next step much faster than a list.
-    all_unmatched_inventory_nos = {
-        key for key, val in Counter(all_inventory_nos).items() if val == 1
-    }
-
-    for obj in data:
-        # Get the identifiers (inventory numbers and associated values) unique to this object.
-        unmatched_inventory_nos = {
-            key: val
-            for key, val in obj.identifiers.items()
-            if key in all_unmatched_inventory_nos
-        }
-
-        sheet_name = f"Only in {obj.source_system}"
-        column_names = ["Inventory Number", "Other Identifiers"]
-        print(f"{sheet_name}: {len(unmatched_inventory_nos)}")
-        write_excel_report(
-            filename=report_filename,
-            sheet_name=sheet_name,
-            data=unmatched_inventory_nos,
-            column_names=column_names,
-        )
-
-
-def _create_dataframe(data: list | set | dict, column_names: list[str]) -> pd.DataFrame:
-    """Helper method to create pandas dataframe from a set / list or a dict,
-    since pandas does that in different ways.
-    """
-    if isinstance(data, list | set):
-        # Sort it for more useable output; converts set to list, which is fine.
-        data = sorted(data)
-        # Easy dataframe construction.
-        df = pd.DataFrame(data, columns=column_names)
-    elif isinstance(data, dict):
-        # dicts need some manipulation.
-        # Sort it, which also is different from sets.
-        data = dict(sorted(data.items()))
-
-        # The dict key will become the index column, so split column names into
-        # first column and the rest.
-        index_column_name = column_names[0]
-        other_column_names = column_names[1:]
-
-        # The values of these dicts are lists, which pandas dataframe does not like;
-        # convert each value to a string.
-        data = {key: "|".join(value) for key, value in data.items()}
-
-        # Can't just pass the dict to the df, must use from_dict();
-        # orient="index" means use the keys as rows, not columns.
-        df = pd.DataFrame.from_dict(data, orient="index", columns=other_column_names)
-
-        # Finally, set the df's built-in index column name to the one we want.
-        df.reset_index(names=index_column_name, inplace=True)
-    else:
-        raise TypeError(f"Unexpected type: {type(data)}")
+    # Create the dataframe
+    df = pd.DataFrame(data=list_of_lists, columns=column_names)
     return df
 
 
-def write_excel_report(
-    filename: str,
-    sheet_name: str,
-    data: set | dict,
-    column_names: list[str] = None,
-) -> None:
-    if column_names is None:
-        column_names = ["Inventory Number"]
+def _get_one_to_many_matches(
+    inventory_number: str,
+    alma_data: InventoryNumberData,
+    filemaker_data: InventoryNumberData,
+    original_value: str = None,
+) -> ReportRow:
+    alma_identifiers = alma_data.identifiers.get(inventory_number, [])
+    filemaker_identifiers = filemaker_data.identifiers.get(inventory_number, [])
+    return ReportRow(
+        inventory_number=inventory_number,
+        alma_identifiers=alma_identifiers,
+        filemaker_identifiers=filemaker_identifiers,
+        original_value=original_value,
+    )
 
-    df = _create_dataframe(data, column_names)
+
+def report_single_values(
+    google_single_values: set[str],
+    alma_data: InventoryNumberData,
+    filemaker_data: InventoryNumberData,
+    report_filename: str,
+) -> None:
+    """Generates several lists of data for reporting on how single Google values
+    are associated with data from Alma and/or Filemaker. These lists are then written
+    to an Excel file, each on a different sheet.
+    """
+
+    # Initialize
+    # 1) Matches multiple FM, no Alma (A0 FM)
+    multiple_fm_no_alma = []
+    # 2) Matches multiple Alma, no FM (AM F0)
+    multiple_alma_no_fm = []
+    # 3) Matches multiple FM and one Alma (A1 FM)
+    multiple_fm_one_alma = []
+    # 4) Matches multiple Alma and one FM (AM F1)
+    multiple_alma_one_fm = []
+    # 5) Matches multiple FM and multiple Alma (AM FM) (separate from the prev 2, to avoid overlaps)
+    multiple_fm_multiple_alma = []
+    # 6) Matches no FM, no Alma (A0 F0) (not requested, but seems useful to know...)
+    no_fm_no_alma = []
+    # Leftovers not matches by a case above
+    leftovers = []
+
+    for inventory_number in google_single_values:
+        matches = _get_one_to_many_matches(inventory_number, alma_data, filemaker_data)
+        if matches.filemaker_count > 1 and matches.alma_count == 0:
+            multiple_fm_no_alma.append(matches)
+        elif matches.alma_count > 1 and matches.filemaker_count == 0:
+            multiple_alma_no_fm.append(matches)
+        elif matches.filemaker_count > 1 and matches.alma_count == 1:
+            multiple_fm_one_alma.append(matches)
+        elif matches.alma_count > 1 and matches.filemaker_count == 1:
+            multiple_alma_one_fm.append(matches)
+        elif matches.filemaker_count > 1 and matches.alma_count > 1:
+            multiple_fm_multiple_alma.append(matches)
+        elif matches.filemaker_count == 0 and matches.alma_count == 0:
+            no_fm_no_alma.append(matches)
+        else:
+            # Not a reportable case, but capture for possible use / debugging.
+            leftovers.append(matches)
+
+    # Quick counts
+    print(f"{len(multiple_fm_no_alma)=}")
+    print(f"{len(multiple_alma_no_fm)=}")
+    print(f"{len(multiple_fm_one_alma)=}")
+    print(f"{len(multiple_alma_one_fm)=}")
+    print(f"{len(multiple_fm_multiple_alma)=}")
+    print(f"{len(no_fm_no_alma)=}")
+    print(f"{len(leftovers)=}")
+
+    # Convert each list of objects to a dataframe and export to Excel.
+    # 1
+    write_excel_sheet(
+        filename=report_filename,
+        sheet_name="1) Single G Mult FM No Alma",
+        data=multiple_fm_no_alma,
+    )
+
+    # 2
+    write_excel_sheet(
+        filename=report_filename,
+        sheet_name="2) Single G Mult Alma No FM",
+        data=multiple_alma_no_fm,
+    )
+
+    # 3
+    write_excel_sheet(
+        filename=report_filename,
+        sheet_name="3) Single G Mult FM One Alma",
+        data=multiple_fm_one_alma,
+    )
+
+    # 4
+    write_excel_sheet(
+        filename=report_filename,
+        sheet_name="4) Single G Mult Alma One FM",
+        data=multiple_alma_one_fm,
+    )
+
+    # 5
+    write_excel_sheet(
+        filename=report_filename,
+        sheet_name="5) Single G Mult FM Mult Alma",
+        data=multiple_fm_multiple_alma,
+    )
+
+    # 6
+    write_excel_sheet(
+        filename=report_filename,
+        sheet_name="6) Single G No FM No Alma",
+        data=no_fm_no_alma,
+    )
+
+
+def report_multiple_values(
+    google_single_values: set[str],
+    alma_data: InventoryNumberData,
+    filemaker_data: InventoryNumberData,
+    report_filename: str,
+) -> None:
+
+    pass
+
+
+def write_excel_sheet(filename: str, sheet_name: str, data: list[ReportRow]) -> None:
+    df = _create_dataframe_from_reportrows(data)
     # pandas.ExcelWriter apparently needs to know in advance if the file exists,
     # and is finicky about other settings too.
     if Path(filename).exists():
@@ -259,36 +393,19 @@ def main() -> None:
 
     report_filename = "inventory_number_matches.xlsx"
 
-    report_perfect_matches(
-        data=[alma_data, filemaker_data, google_data],
-        message="Perfect matches for all 3 sources",
-        report_filename=report_filename,
-        sheet_name="All 3 sources",
-    )
+    # All matches are done from Google to other source(s).
+    # This contains both single-value strings, (e.g., "M123", "DVD999"), as well as
+    # multiple-value pipe-delimited strings, (e.g., "M456|M789", "XFE111|XFE222|XFE333").
+    # For each value: if it's a single, process as is; if multiple, split and process
+    # via different matches.
+    google_single_values = {value for value in google_data if "|" not in value}
+    google_multiple_values = google_data - google_single_values
 
-    report_perfect_matches(
-        data=[alma_data, filemaker_data],
-        message="Perfect matches for Alma and Filemaker",
-        report_filename=report_filename,
-        sheet_name="Alma and FM only",
+    report_single_values(
+        google_single_values, alma_data, filemaker_data, report_filename
     )
-
-    report_perfect_matches(
-        data=[alma_data, google_data],
-        message="Perfect matches for Alma and Google",
-        report_filename=report_filename,
-        sheet_name="Alma and Google only",
-    )
-
-    report_perfect_matches(
-        data=[filemaker_data, google_data],
-        message="Perfect matches for Filemaker and Google",
-        report_filename=report_filename,
-        sheet_name="FM and Google only",
-    )
-
-    report_unmatched(
-        data=[alma_data, filemaker_data, google_data], report_filename=report_filename
+    report_multiple_values(
+        google_multiple_values, alma_data, filemaker_data, report_filename
     )
 
 
