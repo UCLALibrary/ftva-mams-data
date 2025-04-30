@@ -97,12 +97,25 @@ class ReportRow:
         return len(self.filemaker_identifiers)
 
     @property
+    def total_count(self) -> int:
+        return self.alma_count + self.filemaker_count
+
+    @property
     def alma_delimited(self) -> str:
         return ", ".join(self.alma_identifiers)
 
     @property
     def filemaker_delimited(self) -> str:
         return ", ".join(self.filemaker_identifiers)
+
+    # Allow use in a set by implementing __eq__ and __hash__
+    def __eq__(self, other):
+        if not isinstance(other, ReportRow):
+            return NotImplemented
+        return self.inventory_number == other.inventory_number
+
+    def __hash__(self):
+        return hash(self.inventory_number)
 
 
 #######################################
@@ -260,6 +273,23 @@ def _get_one_to_many_matches(
     )
 
 
+def _get_many_to_many_matches(
+    compound_value: str,
+    alma_data: InventoryNumberData,
+    filemaker_data: InventoryNumberData,
+) -> list[ReportRow]:
+
+    all_matches = []
+    # Split the compound value into separate inventory numbers, each to be checked.
+    for inventory_number in compound_value.split("|"):
+        match = _get_one_to_many_matches(
+            inventory_number, alma_data, filemaker_data, original_value=compound_value
+        )
+        all_matches.append(match)
+
+    return all_matches
+
+
 def report_single_values(
     google_single_values: set[str],
     alma_data: InventoryNumberData,
@@ -271,7 +301,7 @@ def report_single_values(
     to an Excel file, each on a different sheet.
     """
 
-    # Initialize
+    # Initialize all the lists to be built.
     # 1) Matches multiple FM, no Alma (A0 FM)
     multiple_fm_no_alma = []
     # 2) Matches multiple Alma, no FM (AM F0)
@@ -318,54 +348,115 @@ def report_single_values(
     # 1
     write_excel_sheet(
         filename=report_filename,
-        sheet_name="1) Single G Mult FM No Alma",
+        sheet_name="S1) Single G Mult FM No Alma",
         data=multiple_fm_no_alma,
     )
 
     # 2
     write_excel_sheet(
         filename=report_filename,
-        sheet_name="2) Single G Mult Alma No FM",
+        sheet_name="S2) Single G Mult Alma No FM",
         data=multiple_alma_no_fm,
     )
 
     # 3
     write_excel_sheet(
         filename=report_filename,
-        sheet_name="3) Single G Mult FM One Alma",
+        sheet_name="S3) Single G Mult FM One Alma",
         data=multiple_fm_one_alma,
     )
 
     # 4
     write_excel_sheet(
         filename=report_filename,
-        sheet_name="4) Single G Mult Alma One FM",
+        sheet_name="S4) Single G Mult Alma One FM",
         data=multiple_alma_one_fm,
     )
 
     # 5
     write_excel_sheet(
         filename=report_filename,
-        sheet_name="5) Single G Mult FM Mult Alma",
+        sheet_name="S5) Single G Mult FM Mult Alma",
         data=multiple_fm_multiple_alma,
     )
 
     # 6
     write_excel_sheet(
         filename=report_filename,
-        sheet_name="6) Single G No FM No Alma",
+        sheet_name="S6) Single G No FM No Alma",
         data=no_fm_no_alma,
     )
 
 
 def report_multiple_values(
-    google_single_values: set[str],
+    google_multiple_values: set[str],
     alma_data: InventoryNumberData,
     filemaker_data: InventoryNumberData,
     report_filename: str,
 ) -> None:
+    """Generates several lists of data for reporting on how multiple Google values
+    (a pipe-delimited string representing the original value in a single Google cell)
+    are associated with data from Alma and/or Filemaker.
+    These lists are then written to an Excel file, each on a different sheet.
+    """
+    # Initialize all the lists to be built.
+    # 1) Multiple inventory numbers in a single Google Sheet row,
+    # where each individual inventory number matches to only one record (in FM or Alma).
+    each_to_one_fm_or_alma = []
+    # 2) Multiple inventory numbers in a single Google Sheet row,
+    # where at least one inventory number matches to multiple records (in FM and/or Alma).
+    at_least_one_to_mult_fm_or_alma = []
+    # Leftovers not matches by a case above
+    leftovers = []
 
-    pass
+    for compound_value in google_multiple_values:
+        matches = _get_many_to_many_matches(compound_value, alma_data, filemaker_data)
+        # Case 1: Does each inventory number match only one record (in FM or Alma)?
+        if all([match.total_count == 1 for match in matches]):
+            # Add all of the matches for reporting.
+            each_to_one_fm_or_alma.extend(matches)
+        # Case 2: Does at least one inventory number match multiple records (in FM and/or Alma)?
+        elif any(
+            [(match.alma_count > 1 or match.filemaker_count > 1) for match in matches]
+        ):
+            # Add only the qualifying matches for reporting.
+            # The test is repeated, but this is quick enough and I don't see a better way...
+            for match in matches:
+                if match.alma_count > 1 or match.filemaker_count > 1:
+                    at_least_one_to_mult_fm_or_alma.append(match)
+        else:
+            # Not a reportable case, but capture for possible use / debugging.
+            leftovers.extend(matches)
+
+    # Quick counts: with duplicates
+    print("Multi-match counts before de-duping")
+    print(f"{len(each_to_one_fm_or_alma)=}")
+    print(f"{len(at_least_one_to_mult_fm_or_alma)=}")
+    print(f"{len(leftovers)=}")
+    # De-duplicate these
+    each_to_one_fm_or_alma = list(set(each_to_one_fm_or_alma))
+    at_least_one_to_mult_fm_or_alma = list(set(at_least_one_to_mult_fm_or_alma))
+    leftovers = list(set(leftovers))
+    # Quick counts: without duplicates
+    print("Multi-match counts after de-duping")
+    print(f"{len(each_to_one_fm_or_alma)=}")
+    print(f"{len(at_least_one_to_mult_fm_or_alma)=}")
+    print(f"{len(leftovers)=}")
+
+    # Convert each list of objects to a dataframe and export to Excel.
+    # 1
+    write_excel_sheet(
+        filename=report_filename,
+        sheet_name="M1) Many to one",
+        data=each_to_one_fm_or_alma,
+    )
+
+    # 2
+    write_excel_sheet(
+        filename=report_filename,
+        sheet_name="M2) Many to many",
+        data=at_least_one_to_mult_fm_or_alma,
+    )
 
 
 def write_excel_sheet(filename: str, sheet_name: str, data: list[ReportRow]) -> None:
