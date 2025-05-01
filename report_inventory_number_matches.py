@@ -141,6 +141,11 @@ def _get_args() -> argparse.Namespace:
         help="Path to XLSX file containing FTVA Google Sheets data",
         required=True,
     )
+    parser.add_argument(
+        "--output_file",
+        help="Path to XLSX output file which will be written to",
+        required=True,
+    )
     args = parser.parse_args()
     return args
 
@@ -184,7 +189,8 @@ def _get_filemaker_data(filename: str) -> InventoryNumberData:
         # Some Filemaker inventory numbers end with (or in 1 case, contain)
         # u'\xa0', non-breaking space.  Almost certainly errors; remove this character.
         inventory_no = row["inventory_no"].replace("\xa0", "")
-        filemaker_identifiers[inventory_no].append(row["recordId"])
+        # inventory_id is an int, in the source json; convert to string.
+        filemaker_identifiers[inventory_no].append(str(row["inventory_id"]))
 
     filemaker_data = InventoryNumberData(
         source_system="Filemaker",
@@ -249,7 +255,7 @@ def _create_dataframe_from_reportrows(data: list[ReportRow]) -> pd.DataFrame:
         "Inventory Number",
         "Original Value",
         "Alma Holdings IDs",
-        "Filemaker Record IDs",
+        "Filemaker Inventory IDs",
     ]
 
     # Create the dataframe
@@ -263,6 +269,9 @@ def _get_one_to_many_matches(
     filemaker_data: InventoryNumberData,
     original_value: str = None,
 ) -> ReportRow:
+    """Returns a ReportRow object with the Alma and Filemaker identifiers
+    matching the given inventory number.
+    """
     alma_identifiers = alma_data.identifiers.get(inventory_number, [])
     filemaker_identifiers = filemaker_data.identifiers.get(inventory_number, [])
     return ReportRow(
@@ -278,7 +287,10 @@ def _get_many_to_many_matches(
     alma_data: InventoryNumberData,
     filemaker_data: InventoryNumberData,
 ) -> list[ReportRow]:
-
+    """Returns a list of ReportRow objects with the Alma and Filemaker identifiers
+    matching the inventory numbers extracted from the pipe-delimited compound value,
+    like "M12345|DVD54321".
+    """
     all_matches = []
     # Split the compound value into separate inventory numbers, each to be checked.
     for inventory_number in compound_value.split("|"):
@@ -460,6 +472,11 @@ def report_multiple_values(
 
 
 def write_excel_sheet(filename: str, sheet_name: str, data: list[ReportRow]) -> None:
+    """Creates an Excel file with the given name, or updates an existing one, with one
+    sheet containing the input data.
+    For existing files, if a sheet with sheet_name already exists, that sheet will be replaced;
+    otherwise, a new sheet will be created within the existing file.
+    """
     df = _create_dataframe_from_reportrows(data)
     # pandas.ExcelWriter apparently needs to know in advance if the file exists,
     # and is finicky about other settings too.
@@ -477,12 +494,11 @@ def write_excel_sheet(filename: str, sheet_name: str, data: list[ReportRow]) -> 
 
 def main() -> None:
     args = _get_args()
+    report_filename = args.output_file
 
     alma_data = _get_alma_data(args.alma_file)
     filemaker_data = _get_filemaker_data(args.filemaker_data_file)
     google_data = _get_google_data(args.google_file)
-
-    report_filename = "inventory_number_matches.xlsx"
 
     # All matches are done from Google to other source(s).
     # This contains both single-value strings, (e.g., "M123", "DVD999"), as well as

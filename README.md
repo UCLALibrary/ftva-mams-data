@@ -78,7 +78,7 @@ Every available field of every record is included. The program writes all record
 ```python get_ftva_holdings_report.py --config_file CONFIG_FILE --output_file OUTPUT_FILE```
 
 This script retrieves a few fields from Alma bib and holdings records associated with FTVA: bib and holdings ids, call number, and location.
-It writes to the provided `OUTPUT_FILE`, in CSV format - about 368,000 records as of 4/2025.
+It writes to the provided `OUTPUT_FILE`, in CSV format - about 368,000 records as of 4/2025. It takes about 6 minutes to run.
 
 ### Proof of concept for Filemaker API (find and display data)
 
@@ -106,36 +106,45 @@ This script extracts inventory numbers from the values of the "Legacy Path" colu
 python report_inventory_number_matches.py \
      --alma_file FTVA_HOLDINGS.csv \
      --filemaker_data_file FILEMAKER_DATA.json \
-     --google_file GOOGLE_SHEET.xlsx
+     --google_file GOOGLE_SHEET.xlsx \
+     --output_file REPORT_FILE.xlsx
 ```
 
 This script compares FTVA inventory numbers from 3 sources:
-* Alma (obtained by running `get_ftva_holdings_report.py`)
-* Filemaker (obtained by running `filemaker_get_all_records.py`)
 * Google sheets (obtained by downloading the relevant file in Excel format, all sheets.)
   * Only the "Tapes(row 4560-24712)" sheet is used by this script.
+* Alma (obtained by running `get_ftva_holdings_report.py`)
+* Filemaker (obtained by running `filemaker_get_all_records.py`)
 
-The script loads data from all 3 files and compares inventory numbers from all sources in a variety of ways:
-* Inventory numbers with perfect matches (1-1-1) across all 3 sources
-* Inventory numbers with perfect matches (1-1) across each pair of sources (Alma/Filemaker, Alma/Google, Filemaker/Google)
-* Inventory numbers occurring in only one source
-  * Alma: "Other Identifiers" column lists the Alma holdings id(s) for each inventory number
-  * Filemaker: "Other Identifiers" column lists the FM record id(s) for each inventory number
-  * Google: "Other Identifiers" column lists the sheet's row number(s) for each inventory number
+The script loads data from all 3 files and compares inventory numbers in a variety of ways:
+* Google single values matching multiple records in Alma, Filemaker, or both
+* Google compound values (e.g., "M123|DVD431") where each individual inventory number matches only one Alma or Filemaker record
+* Google compound values where at least one individual inventory number matches multiple Alma and/or Filemaker records
 
-All output is written to an Excel file, `inventory_number_matches.xlsx`. If the file already exists, worksheets
+All output is written to an Excel file. If the file already exists, worksheets
 within it are replaced as each part of the script runs.  The script takes about 2 minutes to run.
 
-Various counts are also written to `STDOUT`.  Using the latest available data as of 4/22/2025:
+Various counts are also written to `STDOUT`.  Using the latest available data as of 4/30/2025:
 ```
-Counts for Alma inventory numbers: 368247 total, 256337 distinct, 228785 singletons, 0 empty
-Counts for Filemaker inventory numbers: 606136 total, 553318 distinct, 530993 singletons, 0 empty
-Counts for Google inventory numbers: 20362 total, 4462 distinct, 1476 singletons, 3983 empty
-Perfect matches for all 3 sources: 608
-Perfect matches for Alma and Filemaker: 189956
-Perfect matches for Alma and Google: 627
-Perfect matches for Filemaker and Google: 1381
-Only in Alma: 47804
-Only in Filemaker: 342763
-Only in Google: 57
+Counts for Alma inventory numbers: 368261 total, 256361 distinct, 27543 repeats, 228818 singletons, 0 empty.
+Counts for Filemaker inventory numbers: 606186 total, 553368 distinct, 22325 repeats, 531043 singletons, 0 empty.
+Counts for Google Sheet inventory numbers: 19641 total, 4596 distinct, 4356 single values, 240 multiple values, 3983 empty.
+
+len(multiple_fm_no_alma)=92
+len(multiple_alma_no_fm)=16
+len(multiple_fm_one_alma)=9
+len(multiple_alma_one_fm)=417
+len(multiple_fm_multiple_alma)=179
+len(no_fm_no_alma)=46
+len(leftovers)=3597
+
+Multi-match counts before de-duping
+len(each_to_one_fm_or_alma)=200
+len(at_least_one_to_mult_fm_or_alma)=40
+len(leftovers)=248
+
+Multi-match counts after de-duping
+len(each_to_one_fm_or_alma)=167
+len(at_least_one_to_mult_fm_or_alma)=28
+len(leftovers)=224
 ```
