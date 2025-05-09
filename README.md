@@ -29,6 +29,7 @@ If needed, rebuild the dev container by:
    2. `docker image rm -f vsc-ftva-mams-data-LONG_HEX_STRING-uid`
 3. Start VS Code as usual.
 
+
 ## Running code
 
 Running code from a VS Code terminal within the dev container should just work, e.g.: `python some_script.py` (whatever the specific program is).
@@ -41,6 +42,13 @@ $ docker compose run ftva_data bash
 
 # Open a Python shell in the container
 $ docker compose run ftva_data python
+```
+
+### Running tests
+
+Several scripts have tests.  To run tests:
+```
+$ docker compose run ftva_data python -m unittest
 ```
 
 ### Secrets
@@ -64,6 +72,10 @@ user="YOUR_NAME"
 ```
 
 ## Scripts
+
+Examples below assume you're running them in an existing `bash` shell within the container.  To run from outside, launching
+a container, add `docker compose run ftva_data ` to the beginning of the command (e.g., 
+`docker compose run ftva_data python filemaker_get_all_records.py --config_file CONFIG_FILE` ).
 
 ### Retrieve all Filemaker records
 
@@ -124,19 +136,19 @@ The script loads data from all 3 files and compares inventory numbers in a varie
 All output is written to an Excel file. If the file already exists, worksheets
 within it are replaced as each part of the script runs.  The script takes about 2 minutes to run.
 
-Various counts are also written to `STDOUT`.  Using the latest available data as of 4/30/2025:
+Various counts are also written to `STDOUT`.  Using the latest available data as of 5/8/2025:
 ```
-Counts for Alma inventory numbers: 368261 total, 256361 distinct, 27543 repeats, 228818 singletons, 0 empty.
-Counts for Filemaker inventory numbers: 606186 total, 553368 distinct, 22325 repeats, 531043 singletons, 0 empty.
+Counts for Alma inventory numbers: 368268 total, 256375 distinct, 27536 repeats, 228839 singletons, 0 empty.
+Counts for Filemaker inventory numbers: 606225 total, 553416 distinct, 22320 repeats, 531096 singletons, 1 empty.
 Counts for Google Sheet inventory numbers: 19641 total, 4596 distinct, 4356 single values, 240 multiple values, 3983 empty.
 
 len(multiple_fm_no_alma)=92
-len(multiple_alma_no_fm)=16
+len(multiple_alma_no_fm)=12
 len(multiple_fm_one_alma)=9
-len(multiple_alma_one_fm)=417
+len(multiple_alma_one_fm)=421
 len(multiple_fm_multiple_alma)=179
-len(no_fm_no_alma)=46
-len(leftovers)=3597
+len(no_fm_no_alma)=44
+len(leftovers)=3599
 
 Multi-match counts before de-duping
 len(each_to_one_fm_or_alma)=200
