@@ -43,7 +43,9 @@ def main() -> None:
         database=fm_config["database"],
         layout=fm_config["layout"],
         api_version=fm_config["api_version"],
-        timeout=60,  # enough for 5000 records startup
+        timeout=120,
+        # 60 seconds should be enough for 5000 records startup;
+        # double it to be safe.
     )
 
     fms.login()
