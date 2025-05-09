@@ -179,6 +179,7 @@ cython_debug/
 *.xlsx
 *.xls
 *.xml
+*.zip
 
 # Allow devcontainer json
 !.devcontainer/*.json
