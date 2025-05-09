@@ -162,8 +162,9 @@ def _get_alma_data(filename: str) -> InventoryNumberData:
     # Use defaultdict for convenience adding / referencing keys.
     alma_identifiers: id_dict = defaultdict(list)
     for row in data:
-        # Many Alma values have spaces; remove them.
-        inventory_no = row["Permanent Call Number"].replace(" ", "")
+        # Many Alma values have spaces; remove them;
+        # also force to upper case.
+        inventory_no: str = row["Permanent Call Number"].replace(" ", "").upper()
         alma_identifiers[inventory_no].append(row["Holding Id"])
 
     alma_data = InventoryNumberData(
@@ -188,7 +189,8 @@ def _get_filemaker_data(filename: str) -> InventoryNumberData:
     for row in data:
         # Some Filemaker inventory numbers end with (or in 1 case, contain)
         # u'\xa0', non-breaking space.  Almost certainly errors; remove this character.
-        inventory_no = row["inventory_no"].replace("\xa0", "")
+        # Also force to upper case.
+        inventory_no: str = row["inventory_no"].replace("\xa0", "").upper()
         # inventory_id is an int, in the source json; convert to string.
         filemaker_identifiers[inventory_no].append(str(row["inventory_id"]))
 
@@ -215,7 +217,8 @@ def _get_google_data(filename: str) -> set[str]:
     value_count = len(df)
     empty_count = total_count - value_count
 
-    # Create a set with all raw inventory number values
+    # Create a set with all raw inventory number values.
+    # Values are already upper case strings, normalized in the source document.
     unique_values = {row[column_name] for _, row in df.iterrows()}
     unique_count = len(unique_values)
     # Print summary, similar to InventoryNumberData.print_summary_counts().
