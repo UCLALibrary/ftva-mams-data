@@ -4,3 +4,5 @@ services:
     # tty: true
     volumes: 
       - .:/home/ftva_data/project
+    # Keep the container running until stopped via docker compose.
+    command: "sleep infinity"

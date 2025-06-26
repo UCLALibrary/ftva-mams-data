@@ -37,18 +37,21 @@ Running code from a VS Code terminal within the dev container should just work, 
 Otherwise, run a program via docker compose.  From the project directory:
 
 ```
+# Start the system
+$ docker compose up -d
+
 # Open a shell in the container
-$ docker compose run ftva_data bash
+$ docker compose exec ftva_data bash
 
 # Open a Python shell in the container
-$ docker compose run ftva_data python
+$ docker compose exec ftva_data python
 ```
 
 ### Running tests
 
 Several scripts have tests.  To run tests:
 ```
-$ docker compose run ftva_data python -m unittest
+$ docker compose exec ftva_data python -m unittest
 ```
 
 ### Secrets
@@ -74,8 +77,8 @@ user="YOUR_NAME"
 ## Scripts
 
 Examples below assume you're running them in an existing `bash` shell within the container.  To run from outside, launching
-a container, add `docker compose run ftva_data ` to the beginning of the command (e.g., 
-`docker compose run ftva_data python filemaker_get_all_records.py --config_file CONFIG_FILE` ).
+a container, add `docker compose exec ftva_data ` to the beginning of the command (e.g., 
+`docker compose exec ftva_data python filemaker_get_all_records.py --config_file CONFIG_FILE` ).
 
 ### Retrieve all Filemaker records
 
@@ -159,4 +162,30 @@ Multi-match counts after de-duping
 len(each_to_one_fm_or_alma)=167
 len(at_least_one_to_mult_fm_or_alma)=28
 len(leftovers)=224
+```
+
+### Report "perfect" inventory number matches across multiple data sources
+
+```
+python get_perfect_matches.py \
+     --alma_data_file FTVA_HOLDINGS.csv \
+     --dl_data_file DL_DATA.json \
+     --filemaker_data_file FILEMAKER_DATA.json \
+     --output_file REPORT_FILE.xlsx
+```
+
+This is similar to `report_inventory_number_matches.py`, but reports only on "perfect" (1-1-1)
+matches between Alma holdings, Filemaker, and data exported from the Digital Labs Django application.
+These matches mean the inventory number occurs only once in each source, and matches exactly across
+all sources.
+
+Output looks like this (counts will vary):
+```
+Read 368324 records from ftva_holdings_20250624.csv
+Alma data: 256458 rows
+Read 26924 records from dl_data.json
+DL data: 4520 rows
+Read 605353 records from filemaker_data_20250624_182542.json
+FM data: 553605 rows
+Found 2177 perfect matches.
 ```
