@@ -5,6 +5,14 @@ import pandas as pd
 
 
 def _get_alma_data(filename: str) -> dict:
+    """Reads Alma holdings data from the given CSV file. This function returns
+    only information about records which occur just once in the file, based on
+    inventory number.
+
+    :param filename: Path to the CSV file with Alma holdings data.
+    :returns alma_data: A dictionary keyed on inventory number, with the full
+    row of data as the value.
+    """
     with open(filename, "r") as f:
         data = csv.DictReader(f)
         data = [row for row in data]
@@ -24,13 +32,21 @@ def _get_alma_data(filename: str) -> dict:
 
 
 def _get_dl_data(filename: str) -> dict:
+    """Reads Digital Labs data from the given JSON file. This function returns
+    only information about records which occur just once in the file, based on
+    inventory number.
+
+    :param filename: Path to the JSON file with Digital Labs data.
+    :returns dl_data: A dictionary keyed on inventory number, with the full
+    row of data as the value.
+    """
     with open(filename, "r") as f:
         data = json.load(f)
     print(f"Read {len(data)} records from {filename}")
 
     dl_data = {}
     for row in data:
-        # DL data exported as a Django fixture has model (ignore), pk (id),
+        # DL data exported as a Django fixture has model (ignored here), pk (id),
         # and fields (dict of all other field names and values).
         # Combine these for later use.
         field_data = row["fields"]
@@ -48,6 +64,14 @@ def _get_dl_data(filename: str) -> dict:
 
 
 def _get_filemaker_data(filename: str) -> dict:
+    """Reads Filemaker data from the given JSON file. This function returns
+    only information about records which occur just once in the file, based on
+    inventory number.
+
+    :param filename: Path to the JSON file with Alma holdings data.
+    :returns filemaker_data: A dictionary keyed on inventory number, with the full
+    row of data as the value.
+    """
     with open(filename, "r") as f:
         data = json.load(f)
     print(f"Read {len(data)} records from {filename}")
@@ -76,7 +100,7 @@ def _get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dl_data_file",
-        help="Path to JSON file containing FTVA Digital (formerly Google Sheets) data",
+        help="Path to JSON file containing FTVA Digital Labs (formerly Google Sheets) data",
         required=True,
     )
     parser.add_argument(
@@ -107,8 +131,9 @@ def main() -> None:
 
     # We only want the "perfect" matches, where the inventory number
     # occurs in all dictionaries.
-    # Convert keys to sets and find the intersection; sort keys for better output.
-    perfect_matches = sorted(set(alma_data) & set(filemaker_data) & set(dl_data))
+    # Convert keys to sets and find the intersection;
+    # sort the combined set of keys for better output later.
+    perfect_matches = sorted(set(dl_data) & set(alma_data) & set(filemaker_data))
     print(f"Found {len(perfect_matches)} perfect matches.")
 
     # Get selected data from the sources for each matched inventory number.
@@ -133,6 +158,7 @@ def main() -> None:
         }
         output_data.append(merged_data)
 
+    # Turn the list of dictionaries into a DataFrame and write it to Excel file.
     df = pd.DataFrame(output_data)
     with pd.ExcelWriter(args.output_file) as writer:
         df.to_excel(writer, index=False)
