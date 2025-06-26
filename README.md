@@ -37,18 +37,21 @@ Running code from a VS Code terminal within the dev container should just work, 
 Otherwise, run a program via docker compose.  From the project directory:
 
 ```
+# Start the system
+$ docker compose up -d
+
 # Open a shell in the container
-$ docker compose run ftva_data bash
+$ docker compose exec ftva_data bash
 
 # Open a Python shell in the container
-$ docker compose run ftva_data python
+$ docker compose exec ftva_data python
 ```
 
 ### Running tests
 
 Several scripts have tests.  To run tests:
 ```
-$ docker compose run ftva_data python -m unittest
+$ docker compose exec ftva_data python -m unittest
 ```
 
 ### Secrets
@@ -74,8 +77,8 @@ user="YOUR_NAME"
 ## Scripts
 
 Examples below assume you're running them in an existing `bash` shell within the container.  To run from outside, launching
-a container, add `docker compose run ftva_data ` to the beginning of the command (e.g., 
-`docker compose run ftva_data python filemaker_get_all_records.py --config_file CONFIG_FILE` ).
+a container, add `docker compose exec ftva_data ` to the beginning of the command (e.g., 
+`docker compose exec ftva_data python filemaker_get_all_records.py --config_file CONFIG_FILE` ).
 
 ### Retrieve all Filemaker records
 
