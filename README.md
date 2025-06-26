@@ -160,3 +160,29 @@ len(each_to_one_fm_or_alma)=167
 len(at_least_one_to_mult_fm_or_alma)=28
 len(leftovers)=224
 ```
+
+### Report "perfect" inventory number matches across multiple data sources
+
+```
+python get_perfect_matches.py \
+     --alma_data_file FTVA_HOLDINGS.csv \
+     --dl_data_file DL_DATA.json \
+     --filemaker_data_file FILEMAKER_DATA.json \
+     --output_file REPORT_FILE.xlsx
+```
+
+This is similar to `report_inventory_number_matches.py`, but reports only on "perfect" (1-1-1)
+matches between Alma holdings, Filemaker, and data exported from the Digital Labs Django application.
+These matches mean the inventory number occurs only once in each source, and matches exactly across
+all sources.
+
+Output looks like this (counts will vary):
+```
+Read 368324 records from ftva_holdings_20250624.csv
+Alma data: 256458 rows
+Read 26924 records from dl_data.json
+DL data: 4520 rows
+Read 605353 records from filemaker_data_20250624_182542.json
+FM data: 553605 rows
+Found 2177 perfect matches.
+```
