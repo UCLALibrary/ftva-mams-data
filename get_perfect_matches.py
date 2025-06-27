@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import pandas as pd
+from collections import Counter
 
 
 def _get_alma_data(filename: str) -> dict:
@@ -18,15 +19,20 @@ def _get_alma_data(filename: str) -> dict:
         data = [row for row in data]
     print(f"Read {len(data)} records from {filename}")
 
-    alma_data = {}
+    # Clean up & normalize Alma-specific inventory numbers.
     for row in data:
         # Many Alma values have spaces; remove them;
         # also force to upper case.
-        inventory_no: str = row["Permanent Call Number"].replace(" ", "").upper()
-        # Keep only unique (after normalizing) inventory numbers, and their
-        # full row of data for use later.
-        if inventory_no not in alma_data:
-            alma_data[inventory_no] = row
+        row["inventory_number"] = row["Permanent Call Number"].replace(" ", "").upper()
+
+    singletons = _get_singletons(data)
+
+    # Get the data just for rows which have a unique inventory number.
+    alma_data = {
+        row["inventory_number"]: row
+        for row in data
+        if row["inventory_number"] in singletons
+    }
 
     return alma_data
 
@@ -41,24 +47,26 @@ def _get_dl_data(filename: str) -> dict:
     row of data as the value.
     """
     with open(filename, "r") as f:
-        data = json.load(f)
+        data: list[dict] = json.load(f)
     print(f"Read {len(data)} records from {filename}")
 
-    dl_data = {}
+    # DL data exported as a Django fixture has model (ignored here), pk (id),
+    # and fields (dict of all other field names and values).
+    # Combine these for later use.
+    field_data: list[dict] = []
     for row in data:
-        # DL data exported as a Django fixture has model (ignored here), pk (id),
-        # and fields (dict of all other field names and values).
-        # Combine these for later use.
-        field_data = row["fields"]
-        field_data["pk"] = row["pk"]
-        # DL inventory numbers were previously normalized at the source;
-        # we don't care if they're compound or invalid, as those won't match
-        # Alma or Filemaker data anyhow.
-        inventory_no: str = field_data["inventory_number"]
-        # Keep only unique (after normalizing) inventory numbers, and their
-        # full row of data for use later.
-        if inventory_no not in dl_data:
-            dl_data[inventory_no] = field_data
+        tmp_data: dict = row["fields"]
+        tmp_data["pk"] = row["pk"]
+        field_data.append(tmp_data)
+
+    singletons = _get_singletons(field_data)
+
+    # Get the data just for rows which have a unique inventory number.
+    dl_data = {
+        row["inventory_number"]: row
+        for row in field_data
+        if row["inventory_number"] in singletons
+    }
 
     return dl_data
 
@@ -73,21 +81,44 @@ def _get_filemaker_data(filename: str) -> dict:
     row of data as the value.
     """
     with open(filename, "r") as f:
-        data = json.load(f)
+        data: list[dict] = json.load(f)
     print(f"Read {len(data)} records from {filename}")
 
-    filemaker_data = {}
+    # Clean up & normalize Filemaker-specific inventory numbers.
     for row in data:
-        # Some Filemaker inventory numbers end with (or in 1 case, contain)
+        # Some Filemaker inventory numbers end with (or contain)
         # u'\xa0', non-breaking space.  Almost certainly errors; remove this character.
-        # Also force to upper case.
-        inventory_no: str = row["inventory_no"].replace("\xa0", "").upper()
-        # Keep only unique (after normalizing) inventory numbers, and their
-        # full row of data for use later.
-        if inventory_no not in filemaker_data:
-            filemaker_data[inventory_no] = row
+        # Also force to upper case, and rename to inventory_number for consistency
+        # with other data sources.
+        row["inventory_number"] = row.pop("inventory_no").replace("\xa0", "").upper()
+
+    singletons = _get_singletons(data)
+
+    # Get the data just for rows which have a unique inventory number.
+    filemaker_data = {
+        row["inventory_number"]: row
+        for row in data
+        if row["inventory_number"] in singletons
+    }
 
     return filemaker_data
+
+
+def _get_singletons(data: list[dict]) -> set[str]:
+    """Given a list of dictionaries, with each having an `inventory_number` key,
+    returns the inventory number values which occur only once throughout the list.
+
+    :param data: A list of dictionaries.
+    :return singletons: A set of inventory number values which occur only once in `data`.
+    :raises KeyError: if any dictionary does not have an `inventory_number` key.
+    """
+    # Get number of times each inventory number occurs.
+    counts = Counter([row["inventory_number"] for row in data])
+    # Uniqueness guaranteed by count == 1, but use set for much faster lookups in next step.
+    singletons = {
+        inventory_number for inventory_number, count in counts.items() if count == 1
+    }
+    return singletons
 
 
 def _get_args() -> argparse.Namespace:
@@ -121,13 +152,13 @@ def main() -> None:
     args = _get_args()
 
     alma_data = _get_alma_data(args.alma_data_file)
-    print(f"Alma data: {len(alma_data)} rows")
+    print(f"Alma singletons: {len(alma_data)} rows")
 
     dl_data = _get_dl_data(args.dl_data_file)
-    print(f"DL data: {len(dl_data)} rows")
+    print(f"DL singletons: {len(dl_data)} rows")
 
     filemaker_data = _get_filemaker_data(args.filemaker_data_file)
-    print(f"FM data: {len(filemaker_data)} rows")
+    print(f"FM singletons: {len(filemaker_data)} rows")
 
     # We only want the "perfect" matches, where the inventory number
     # occurs in all dictionaries.
