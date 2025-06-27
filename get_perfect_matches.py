@@ -105,6 +105,13 @@ def _get_filemaker_data(filename: str) -> dict:
 
 
 def _get_singletons(data: list[dict]) -> set[str]:
+    """Given a list of dictionaries, with each having an `inventory_number` key,
+    returns the inventory number values which occur only once throughout the list.
+
+    :param data: A list of dictionaries.
+    :return singletons: A set of inventory number values which occur only once in `data`.
+    :raises KeyError: if any dictionary does not have an `inventory_number` key.
+    """
     # Get number of times each inventory number occurs.
     counts = Counter([row["inventory_number"] for row in data])
     # Uniqueness guaranteed by count == 1, but use set for much faster lookups in next step.
