@@ -26,12 +26,13 @@ def _get_arguments() -> argparse.Namespace:
         "--input_file",
         type=str,
         required=True,
-        help="Path to the input CSV file containing Alma holdings IDs and other metadata.",
+        help="Path to the input CSV file containing record identifiers.",
     )
     parser.add_argument(
         "--output_file",
         type=str,
-        required=True,
+        default="processed_metadata.json",
+        required=False,
         help="Path to the output JSON file where processed metadata will be saved.",
     )
     return parser.parse_args()
@@ -199,6 +200,7 @@ def main():
             continue
         # Process each desired field for metadata extraction
         creators = _get_creators(bib_record, nlp_model)
+        # TODO: Add additional metadata fields as needed
 
         processed_row = {
             "alma_bib_id": alma_mms_id,
