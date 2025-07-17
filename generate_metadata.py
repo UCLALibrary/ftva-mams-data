@@ -4,6 +4,7 @@ import argparse
 import tomllib
 import spacy
 import logging
+import dateutil.parser
 from datetime import datetime
 from pathlib import Path
 from pymarc import Record
@@ -173,6 +174,68 @@ def _write_output_file(output_file: str, data: list) -> None:
         json.dump(data, file, indent=4)
 
 
+def _get_date_from_bib(bib_record: Record) -> str:
+    """Extract the release_broadcast_date from a MARC bib record.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :return: Publication date as a string, or an empty string if not found."""
+    # We want the first MARC 260 $c with both indicators blank.
+    date_field = bib_record.get_fields("260")
+    if date_field:
+        for field in date_field:
+            if field.indicator1 == " " and field.indicator2 == " ":
+                date_subfield = field.get_subfields("c")
+                if date_subfield:
+                    return date_subfield[0].strip()
+    # If no date found, return an empty string and log a warning.
+    logging.warning(f"No publication date found in bib record {bib_record['001']}.")
+    return ""
+
+
+def _parse_date(date_string: str) -> str:
+    """Parse a date string into a standardized format.
+
+    :param date_string: Date string to parse.
+    :return: Formatted date string or an empty string if parsing fails."""
+
+    # If the date string is in brackets, remove them temporarily
+    # Remember this so we can add them back later
+    in_brackets = "[" in date_string and "]" in date_string
+    if in_brackets:
+        date_string = date_string.replace("[", "").replace("]", "").strip()
+
+    # Remove trailing punctuation and whitespace
+    date_string = date_string.rstrip(".,;:!?")
+    date_string = date_string.strip()
+
+    # Try to parse the date string using dateutil.parser
+    # TODO: Add handling for underspecified dates, e.g. "2023" or "April 2023"
+    try:
+        parsed_date = dateutil.parser.parse(date_string)
+        # Format the date as YYYY-MM-DD
+        formatted_date = parsed_date.strftime("%Y-%m-%d")
+    except (ValueError, dateutil.parser.ParserError) as e:
+        # If parsing fails, log the error and return the original string
+        logging.info(f"Failed to parse date '{date_string}': {e}")
+        formatted_date = date_string
+
+    if in_brackets:
+        formatted_date = f"[{formatted_date}]"
+
+    return formatted_date
+
+
+def _get_date(bib_record: Record) -> str:
+    """Extract and format release_broadcast_date from a MARC bib record.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :return: Formatted date string or an empty string if not found."""
+    date_string = _get_date_from_bib(bib_record)
+    if not date_string:
+        return ""
+    return _parse_date(date_string)
+
+
 def main() -> None:
     args = _get_arguments()
     config = _get_config(args.config_file)
@@ -203,6 +266,7 @@ def main() -> None:
             continue
         # Process each desired field for metadata extraction
         creators = _get_creators(bib_record, nlp_model)
+        release_broadcast_date = _get_date(bib_record)
         # TODO: Add additional metadata fields as needed
 
         processed_row = {
@@ -211,6 +275,7 @@ def main() -> None:
             "pd_record_id": row.get("pd_record_id"),
             "django_record_id": row.get("django_record_id"),
             "creator": creators,
+            "release_broadcast_date": release_broadcast_date,
         }
         processed_data.append(processed_row)
 
