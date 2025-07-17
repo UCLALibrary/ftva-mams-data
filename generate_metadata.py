@@ -202,7 +202,7 @@ def _parse_date(date_string: str) -> str:
     # Remember this so we can add them back later
     in_brackets = "[" in date_string and "]" in date_string
     if in_brackets:
-        date_string = date_string.replace("[", "").replace("]", "").strip()
+        date_string = date_string.replace("[", "").replace("]", "")
 
     # Remove trailing punctuation and whitespace
     date_string = date_string.rstrip(".,;:!?")
