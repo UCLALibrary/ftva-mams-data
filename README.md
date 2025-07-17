@@ -189,3 +189,17 @@ Read 605353 records from filemaker_data_20250624_182542.json
 FM data: 553605 rows
 Found 2177 perfect matches.
 ```
+
+### Create a "language map" file with data for all languages used by MARC bib records
+
+```
+python create_language_map.py [--store_full_data]
+```
+
+This creates or replaces `language_map.json`, a simple JSON mapping of language code to language name for all of the
+languages supported in MARC bibliographic records, per the Library of Congress (LC).  This includes obsolete languages,
+and the collective name for language families where multiple languages are grouped by LC under one code.
+
+If the optional `--store_full_data` flag is passed, the program will also create or replace `languages_full_data.json`,
+which contains the full JSON data, explicitly identifying obsolete languages, alternate names of languages,
+and all languages under collective names. This is not currently used but could be useful for future projects.
