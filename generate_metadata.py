@@ -89,7 +89,7 @@ def _get_bib_record(client: AlmaAPIClient, mms_id: str) -> Record:
     :param client: Alma API client instance.
     :param mms_id: Alma MMS ID for the bib record.
     :return: Pymarc Record object containing the bib data."""
-    bib_data = client.get_bib(mms_id).get("content")
+    bib_data: bytes = client.get_bib(mms_id).get("content", b"")
     bib_record = get_pymarc_record_from_bib(bib_data)
     return bib_record
 
@@ -120,6 +120,9 @@ def _parse_creators(source_string: str, model: Language) -> list:
     :param source_string: String containing creator names from MARC data.
     :param model: Spacy language model for NER.
     :return: List of creator names."""
+
+    # Initialize an empty string for the creator string
+    creator_string = ""
 
     attribution_phrases = [
         "directed by",
@@ -170,7 +173,7 @@ def _write_output_file(output_file: str, data: list) -> None:
         json.dump(data, file, indent=4)
 
 
-def main():
+def main() -> None:
     args = _get_arguments()
     config = _get_config(args.config_file)
     api_key = config["alma_config"]["alma_api_key"]
