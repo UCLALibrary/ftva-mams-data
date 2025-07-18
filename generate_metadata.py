@@ -203,7 +203,7 @@ def _get_main_title_from_bib(bib_record: Record) -> str:
         main_title = title_field[0].get_subfields("a")
         if main_title:
             # 245 $a is NR, so take first item
-            return _strip_whitespace_and_punctuation(main_title)[0]
+            return main_title[0]
     # If no main title found, log a warning and return an empty string.
     logging.warning(f"No main title (245 $a) found in bib record {bib_record['001']}.")
     return ""
@@ -222,7 +222,7 @@ def _get_alternative_titles_from_bib(bib_record: Record) -> list[str]:
             # Per specs, only take 246 $a if indicator1 is 0, 2, or 3 and indicator2 is empty
             if field.indicator1 in ["0", "2", "3"] and field.indicator2 == " ":
                 alternative_titles += field.get_subfields("a")
-    return _strip_whitespace_and_punctuation(alternative_titles)
+    return alternative_titles
 
 
 def _get_series_title_from_bib(bib_record: Record, main_title: str) -> str:
@@ -254,6 +254,8 @@ def _get_episode_title_from_bib(bib_record: Record) -> str:
         if name_of_part:
             # Per specs, if there are multiple 245 $p, take the first one.
             # Assign it as a list though, so it can be easily joined with other lists.
+            # Specs say episode titles specifically
+            # should be stripped of whitespace and punctuation.
             name_of_part = [_strip_whitespace_and_punctuation(name_of_part)[0]]
 
         number_of_part = _strip_whitespace_and_punctuation(

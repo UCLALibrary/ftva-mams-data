@@ -1,7 +1,16 @@
 import logging
 import unittest
 from pymarc import Field, Indicators, Record, Subfield
-from generate_metadata import _get_language_name, _get_language_map, _get_asset_type
+from generate_metadata import (
+    _get_language_name,
+    _get_language_map,
+    _get_main_title_from_bib,
+    _get_alternative_titles_from_bib,
+    _get_series_title_from_bib,
+    _get_episode_title_from_bib,
+    _get_titles,
+    _get_asset_type,
+)
 
 
 class TestGenerateMetadata(unittest.TestCase):
@@ -86,37 +95,147 @@ class TestGenerateMetadata(unittest.TestCase):
         language_name = _get_language_name(record, self.language_map)
         self.assertEqual(language_name, "French")
 
-    def test_get_asset_type_raw(self):
-        item = {"file_name": "example_raw_file.mov"}
-        asset_type = _get_asset_type(item)
-        self.assertEqual(asset_type, "Raw")
+    def test_get_main_title_minimal_record(self):
+        record = self.minimal_bib_record
+        main_title = _get_main_title_from_bib(record)
+        self.assertEqual(main_title, "F245a")
 
-    def test_get_asset_type_intermediate(self):
-        item = {"file_name": "example_file_mti.mov"}
-        asset_type = _get_asset_type(item)
-        self.assertEqual(asset_type, "Intermediate")
+    def test_get_alternative_titles_valid_indicators(self):
+        record = self.minimal_bib_record
 
-    def test_get_asset_type_final(self):
-        item = {"file_name": "example_file_final.mov"}
-        asset_type = _get_asset_type(item)
-        self.assertEqual(asset_type, "Final Version")
+        # Valid indicators are 0 or 2 or 3 followed by whitespace
+        field_246_1 = Field(
+            tag="246",
+            indicators=Indicators("0", " "),
+            subfields=[
+                Subfield(code="a", value="foo"),
+            ],
+        )
+        field_246_2 = Field(
+            tag="246",
+            indicators=Indicators("2", " "),
+            subfields=[
+                Subfield(code="a", value="bar"),
+            ],
+        )
+        field_246_3 = Field(
+            tag="246",
+            indicators=Indicators("3", " "),
+            subfields=[
+                Subfield(code="a", value="baz"),
+            ],
+        )
+        record.add_field(field_246_1)
+        record.add_field(field_246_2)
+        record.add_field(field_246_3)
+        alternative_titles = _get_alternative_titles_from_bib(record)
+        self.assertListEqual(alternative_titles, ["foo", "bar", "baz"])
 
-    def test_get_asset_type_derivative(self):
-        item = {"file_name": "example_file_finals_finals.mov"}
-        asset_type = _get_asset_type(item)
-        self.assertEqual(asset_type, "Derivative")
+    def test_get_alternative_titles_invalid_indicators(self):
+        record = self.minimal_bib_record
 
-    def test_get_asset_type_unknown(self):
-        item = {"file_name": "example_file.mov"}
-        asset_type = _get_asset_type(item)
-        self.assertEqual(asset_type, "")
+        # Trying different invalid indicator combos
+        field_246_1 = Field(
+            tag="246",
+            indicators=Indicators("0", "1"),
+            subfields=[
+                Subfield(code="a", value="foo"),
+            ],
+        )
+        field_246_2 = Field(
+            tag="246",
+            indicators=Indicators("5", " "),
+            subfields=[
+                Subfield(code="a", value="bar"),
+            ],
+        )
+        field_246_3 = Field(
+            tag="246",
+            indicators=Indicators(" ", " "),
+            subfields=[
+                Subfield(code="a", value="baz"),
+            ],
+        )
+        record.add_field(field_246_1)
+        record.add_field(field_246_2)
+        record.add_field(field_246_3)
+        alternative_titles = _get_alternative_titles_from_bib(record)
+        self.assertListEqual(alternative_titles, [])
 
-    def test_get_asset_type_dpx_intermediate(self):
-        item = {"folder_name": "example_folder_MTI", "file_type": "DPX"}
-        asset_type = _get_asset_type(item)
-        self.assertEqual(asset_type, "Intermediate")
+    def test_get_series_title(self):
+        record = self.minimal_bib_record
+        field_245 = record.get_fields("245")[0]
 
-    def test_get_asset_type_dpx_raw(self):
-        item = {"folder_name": "example_folder", "file_type": "DPX"}
-        asset_type = _get_asset_type(item)
-        self.assertEqual(asset_type, "Raw")
+        main_title = record.get_fields("245")[0].get_subfields("a")[0]
+        series_subfield_codes = ["n", "p", "g"]  # g should result in ""
+        for code in series_subfield_codes:
+            with self.subTest(code=code):
+                field_245.add_subfield(code=code, value=f"F245{code}")
+                series_title = _get_series_title_from_bib(record, main_title)
+                # If 245 $n or 245 $p exists on record,
+                # series title should be main title (245 $a),
+                # else it should be an empty string.
+                if code in ["n", "p"]:  #
+                    self.assertEqual(series_title, main_title)
+                else:
+                    self.assertEqual(series_title, "")
+                field_245.delete_subfield(code=code)
+
+    def test_get_episode_title(self):
+        record = self.minimal_bib_record
+        field_245 = record.get_fields("245")[0]
+        field_245.add_subfield(code="n", value="Episode 001")
+        field_245.add_subfield(
+            code="p",
+            value="Pilot--unedited footage. Pam Jennings interviews Marlon Riggs",
+        )
+
+        field_246 = Field(tag="246", subfields=[Subfield(code="n", value="F246n")])
+        record.add_field(field_246)
+
+        episode_title = _get_episode_title_from_bib(record)
+
+        # Expected output comes from specs.
+        # Specs indicate that 245 $p should come first and be joined with 245 $n and 246 $n
+        # if they exist, using ". " as delimiter
+        expected_output = (
+            "Pilot--unedited footage. Pam Jennings interviews Marlon Riggs. "
+            "Episode 001. "
+            "F246n"
+        )
+        self.assertEqual(episode_title, expected_output)
+
+    def test_get_titles(self):
+        # Testing the main coordinating function
+        # that calls all the smaller title-specific methods.
+
+        record = self.minimal_bib_record
+        field_245 = record.get_fields("245")[0]
+        field_245.add_subfield(code="n", value="F245n")
+        field_245.add_subfield(code="p", value="F245p")
+
+        field_246_1 = Field(
+            tag="246",
+            indicators=Indicators("0", " "),  # indicators are valid
+            subfields=[
+                Subfield(code="a", value="F246a_1"),
+                Subfield(code="n", value="F246n_1"),
+            ],
+        )
+        field_246_2 = Field(
+            tag="246",
+            indicators=Indicators("2", " "),  # indicators are valid
+            subfields=[
+                Subfield(code="a", value="F246a_2"),
+                Subfield(code="n", value="F246n_2"),
+            ],
+        )
+        record.add_field(field_246_1, field_246_2)
+
+        expected_output = {
+            "series_title": "F245a",  # main title from minimal record
+            "alternative_titles": ["F246a_1", "F246a_2"],
+            "episode_title": "F245p. F245n. F246n_1. F246n_2",
+        }
+        titles = _get_titles(record)
+        self.assertEqual(titles, expected_output)
