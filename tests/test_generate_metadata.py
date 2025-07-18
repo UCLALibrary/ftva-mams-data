@@ -1,7 +1,7 @@
 import logging
 import unittest
 from pymarc import Field, Indicators, Record, Subfield
-from generate_metadata import _get_language_name, _get_language_map
+from generate_metadata import _get_language_name, _get_language_map, _get_asset_type
 
 
 class TestGenerateMetadata(unittest.TestCase):
@@ -85,3 +85,38 @@ class TestGenerateMetadata(unittest.TestCase):
         record.add_field(Field(tag="008", data=field_008_data))
         language_name = _get_language_name(record, self.language_map)
         self.assertEqual(language_name, "French")
+
+    def test_get_asset_type_raw(self):
+        item = {"file_name": "example_raw_file.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Raw")
+
+    def test_get_asset_type_intermediate(self):
+        item = {"file_name": "example_file_mti.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Intermediate")
+
+    def test_get_asset_type_final(self):
+        item = {"file_name": "example_file_final.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Final Version")
+
+    def test_get_asset_type_derivative(self):
+        item = {"file_name": "example_file_finals_finals.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Derivative")
+
+    def test_get_asset_type_unknown(self):
+        item = {"file_name": "example_file.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "")
+
+    def test_get_asset_type_dpx_intermediate(self):
+        item = {"folder_name": "example_folder_MTI", "file_type": "DPX"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Intermediate")
+
+    def test_get_asset_type_dpx_raw(self):
+        item = {"folder_name": "example_folder", "file_type": "DPX"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Raw")
