@@ -5,6 +5,7 @@ import tomllib
 import spacy
 import logging
 import dateutil.parser
+import string
 from datetime import datetime
 from pathlib import Path
 from pymarc import Record
@@ -180,6 +181,69 @@ def _get_creators(bib_record: Record, model: Language) -> list:
     for creator in creators:
         parsed_creators.extend(_parse_creators(creator, model))
     return parsed_creators
+
+
+def _strip_whitespace_and_punctuation(items: list[str]) -> list[str]:
+    """A utility function for striping whitespace and punctuation from lists of strings.
+
+    :param items: A list of strings to strip.
+    :return: The list of strings with whitespace and punctuation stripped.
+    """
+    return [item.rstrip(string.punctuation).strip() for item in items]
+
+
+def _get_title_info(bib_record: Record) -> dict:
+    """Extract title fields from a MARC bib record.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :return: A dict with available title info.
+    """
+
+    # Init empty dict for title info
+    titles = {}
+
+    # Start by getting MARC fields and sub-fields
+    marc_245 = bib_record.get_fields("245")
+    # 245 is NR, so it's OK to only take first item
+    marc_245_a = marc_245[0].get_subfields("a") if marc_245 else []
+    marc_245_n = marc_245[0].get_subfields("n") if marc_245 else []
+    marc_245_p = marc_245[0].get_subfields("p") if marc_245 else []
+    # 246 is repeatable, so loop through available fields
+    marc_246 = bib_record.get_fields("246")
+    marc_246_a = []
+    marc_246_n = []
+    for field in marc_246:
+        # Per specs, only take 246 $a if indicator1 is 0, 2, or 3 and indicator2 is empty
+        if field.indicator1 in ["0", "2", "3"] and field.indicator2 == " ":
+            marc_246_a.extend(field.get_subfields("a"))
+        marc_246_n.extend(field.get_subfields("n"))
+
+    # Title logic
+    # 1. If no 245 $p OR 245 $n OR 246 $n, extract 245 $a as Title.
+    if not marc_245_p and not marc_245_n and not marc_246_n:
+        titles["title"] = marc_245_a[0]  # 245 $a is NR, so take first item
+
+    # Alternative Title logic
+    # 1. If more than one 246 (with first indicator 0 or 2 or 3)
+    # and second indicator blank, extract both as individual lines.
+    if marc_246_a:
+        titles["alternative_titles"] = marc_246_a  # Keep as list, per spec
+
+    # Series Title logic
+    # 1. If 245 $p OR 245 $n, extract 245 $a as Series Title.
+    # 2. If no match, ignore this field.
+    if marc_245_p or marc_245_n:
+        titles["series_title"] = marc_245_a[0]  # 245 $a is NR, so take first item
+
+    # Episode Title logic (in summary)
+    # 1. If 245 $p AND (245 $n OR 246 $n), concat with ". "
+    if marc_245_p or marc_245_n or marc_246_n:
+        marc_245_n = _strip_whitespace_and_punctuation(marc_245_n)
+        marc_245_p = _strip_whitespace_and_punctuation(marc_245_p)
+        marc_246_n = _strip_whitespace_and_punctuation(marc_246_n)
+        titles["episode_title"] = ". ".join(marc_245_p + marc_245_n + marc_246_n)
+
+    return titles
 
 
 def _write_output_file(output_file: str, data: list) -> None:
@@ -412,6 +476,7 @@ def main() -> None:
         release_broadcast_date = _get_date(bib_record)
         language_name = _get_language_name(bib_record, language_map)
         file_name = _get_file_name(row)
+        titles = _get_title_info(bib_record)
         # TODO: Add additional metadata fields as needed
 
         processed_row = {
@@ -423,6 +488,7 @@ def main() -> None:
             "release_broadcast_date": release_broadcast_date,
             "language": language_name,
             "file_name": file_name,
+            **titles,
         }
 
         # Add folder name only for DPX files
