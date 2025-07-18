@@ -339,6 +339,16 @@ def _get_asset_type(item: dict) -> str:
 
     :param item: Dictionary containing metadata for a record.
     :return: The asset type string, or an empty string if not found."""
+    # DPX files are special, so check for them first
+    file_type = _get_file_type(item)
+    if file_type == "DPX":
+        lower_folder_name = _get_folder_name(item).lower()
+        if "mti" in lower_folder_name:
+            return "Intermediate"
+        else:
+            return "Raw"
+
+    # Non-DPX files are handled by checking the file_name
     file_name = _get_file_name(item)
     if not file_name:
         return ""

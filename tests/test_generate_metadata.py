@@ -110,3 +110,13 @@ class TestGenerateMetadata(unittest.TestCase):
         item = {"file_name": "example_file.mov"}
         asset_type = _get_asset_type(item)
         self.assertEqual(asset_type, "")
+
+    def test_get_asset_type_dpx_intermediate(self):
+        item = {"folder_name": "example_folder_MTI", "file_type": "DPX"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Intermediate")
+
+    def test_get_asset_type_dpx_raw(self):
+        item = {"folder_name": "example_folder", "file_type": "DPX"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Raw")
