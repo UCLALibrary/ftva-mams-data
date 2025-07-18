@@ -164,31 +164,33 @@ class TestGenerateMetadata(unittest.TestCase):
 
     def test_get_series_title(self):
         record = self.minimal_bib_record
-        field_245 = record.get_fields("245")[0]
+        field_245 = record.get("245")
 
         main_title = record.get_fields("245")[0].get_subfields("a")[0]
         series_subfield_codes = ["n", "p", "g"]  # g should result in ""
         for code in series_subfield_codes:
             with self.subTest(code=code):
-                field_245.add_subfield(code=code, value=f"F245{code}")
-                series_title = _get_series_title_from_bib(record, main_title)
-                # If 245 $n or 245 $p exists on record,
-                # series title should be main title (245 $a),
-                # else it should be an empty string.
-                if code in ["n", "p"]:  #
-                    self.assertEqual(series_title, main_title)
-                else:
-                    self.assertEqual(series_title, "")
-                field_245.delete_subfield(code=code)
+                if field_245:  # this is just to avoid linting errors
+                    field_245.add_subfield(code=code, value=f"F245{code}")
+                    series_title = _get_series_title_from_bib(record, main_title)
+                    # If 245 $n or 245 $p exists on record,
+                    # series title should be main title (245 $a),
+                    # else it should be an empty string.
+                    if code in ["n", "p"]:  #
+                        self.assertEqual(series_title, main_title)
+                    else:
+                        self.assertEqual(series_title, "")
+                    field_245.delete_subfield(code=code)
 
     def test_get_episode_title(self):
         record = self.minimal_bib_record
-        field_245 = record.get_fields("245")[0]
-        field_245.add_subfield(code="n", value="Episode 001")
-        field_245.add_subfield(
-            code="p",
-            value="Pilot--unedited footage. Pam Jennings interviews Marlon Riggs",
-        )
+        field_245 = record.get("245")
+        if field_245:  # to avoid linting error
+            field_245.add_subfield(code="n", value="Episode 001")
+            field_245.add_subfield(
+                code="p",
+                value="Pilot--unedited footage. Pam Jennings interviews Marlon Riggs",
+            )
 
         field_246 = Field(tag="246", subfields=[Subfield(code="n", value="F246n")])
         record.add_field(field_246)
@@ -210,9 +212,10 @@ class TestGenerateMetadata(unittest.TestCase):
         # that calls all the smaller title-specific methods.
 
         record = self.minimal_bib_record
-        field_245 = record.get_fields("245")[0]
-        field_245.add_subfield(code="n", value="F245n")
-        field_245.add_subfield(code="p", value="F245p")
+        field_245 = record.get("245")
+        if field_245:  # to avoid linting error
+            field_245.add_subfield(code="n", value="F245n")
+            field_245.add_subfield(code="p", value="F245p")
 
         field_246_1 = Field(
             tag="246",
