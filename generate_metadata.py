@@ -36,6 +36,13 @@ def _get_arguments() -> argparse.Namespace:
         required=False,
         help="Path to the output JSON file where processed metadata will be saved.",
     )
+    parser.add_argument(
+        "--language_map",
+        type=str,
+        default="language_map.json",
+        required=False,
+        help="Path to the JSON file containing the code:name language map",
+    )
     return parser.parse_args()
 
 
@@ -72,6 +79,16 @@ def _get_logger(name: str | None = None) -> logging.Logger:
         format="%(asctime)s %(levelname)s: %(message)s",
     )
     return logger
+
+
+def _get_language_map(file_path: str) -> dict:
+    """Load the language map from a file.
+
+    :param file_path: Path to the language map file.
+    :return: Dictionary with language code:name data.
+    """
+    with open(file_path, "r") as file:
+        return json.load(file)
 
 
 def _read_input_file(file_path: str) -> list:
@@ -236,6 +253,48 @@ def _get_date(bib_record: Record) -> str:
     return _parse_date(date_string)
 
 
+def _get_language_code_from_bib(bib_record: Record) -> str:
+    """Extract the language code from a MARC bib record.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :return language_code: The 3-letter MARC language code from the 008/35-37, or an empty string
+    if there is no 008 or the 008 is invalid.
+    """
+
+    language_code = ""
+    # 008 is not repeatable, so .get() instead of .get_fields().
+    field_008 = bib_record.get("008")
+    if field_008:
+        field_data = field_008.data
+        # MARC bib 008 should be 40 characters, or is not valid and can't be trusted
+        # to have specific values in the correct positions.
+        if field_data and len(field_data) == 40:
+            # 3 characters, 0-based 35-37
+            language_code = field_data[35:38]
+        else:
+            logging.warning(f"Invalid 008 field in bib record {bib_record['001']}")
+    else:
+        logging.warning(f"No 008 field found in bib record {bib_record['001']}.")
+
+    return language_code
+
+
+def _get_language_name(bib_record: Record, language_map: dict) -> str:
+    """Get the full name of the language in a MARC bib record.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :param language_table: Dictionary which maps code:name for supported languages.
+    :return language_name: The full name of the language.
+    """
+    language_code = _get_language_code_from_bib(bib_record)
+    language_name = language_map.get(language_code, "")
+    if not language_name:
+        logging.warning(
+            f"No language name found in bib record {bib_record['001']} for {language_code}."
+        )
+    return language_name
+
+
 def main() -> None:
     args = _get_arguments()
     config = _get_config(args.config_file)
@@ -254,6 +313,9 @@ def main() -> None:
     # TODO: Support use of a custom model, if needed
     nlp_model = spacy.load("en_core_web_md")
 
+    # Load language mapping data.
+    language_map = _get_language_map(args.language_map)
+
     # Process each row in the input data
     processed_data = []
     for row in input_data:
@@ -267,6 +329,7 @@ def main() -> None:
         # Process each desired field for metadata extraction
         creators = _get_creators(bib_record, nlp_model)
         release_broadcast_date = _get_date(bib_record)
+        language_name = _get_language_name(bib_record, language_map)
         # TODO: Add additional metadata fields as needed
 
         processed_row = {
@@ -276,6 +339,7 @@ def main() -> None:
             "django_record_id": row.get("django_record_id"),
             "creator": creators,
             "release_broadcast_date": release_broadcast_date,
+            "language": language_name,
         }
         processed_data.append(processed_row)
 
