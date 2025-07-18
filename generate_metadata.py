@@ -275,7 +275,7 @@ def _get_episode_title_from_bib(bib_record: Record) -> str:
     return ""
 
 
-def _get_titles(bib_record: Record) -> dict:
+def _get_title_info(bib_record: Record) -> dict:
     """Extract title fields from a MARC bib record.
 
     :param bib_record: Pymarc Record object containing the bib data.

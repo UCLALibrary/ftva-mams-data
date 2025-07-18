@@ -8,7 +8,7 @@ from generate_metadata import (
     _get_alternative_titles_from_bib,
     _get_series_title_from_bib,
     _get_episode_title_from_bib,
-    _get_titles,
+    _get_title_info,
     _get_asset_type,
 )
 
@@ -205,7 +205,7 @@ class TestGenerateMetadata(unittest.TestCase):
         )
         self.assertEqual(episode_title, expected_output)
 
-    def test_get_titles(self):
+    def test_get_title_info(self):
         # Testing the main coordinating function
         # that calls all the smaller title-specific methods.
 
@@ -237,5 +237,5 @@ class TestGenerateMetadata(unittest.TestCase):
             "alternative_titles": ["F246a_1", "F246a_2"],
             "episode_title": "F245p. F245n. F246n_1. F246n_2",
         }
-        titles = _get_titles(record)
+        titles = _get_title_info(record)
         self.assertEqual(titles, expected_output)
