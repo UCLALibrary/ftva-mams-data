@@ -295,6 +295,77 @@ def _get_language_name(bib_record: Record, language_map: dict) -> str:
     return language_name
 
 
+def _get_file_name(item: dict) -> str:
+    """Get the file name element from a given item dictionary.
+
+    :param item: Dictionary containing metadata for a record.
+    :return: The file name string, or an empty string if not found."""
+    file_name = item.get("file_name", "")
+    if not file_name:
+        logging.warning(
+            f"No file name found in item {item.get('alma_bib_id', 'unknown')}."
+        )
+    return file_name
+
+
+def _get_folder_name(item: dict) -> str:
+    """Get the folder name element from a given item dictionary.
+
+    :param item: Dictionary containing metadata for a record.
+    :return: The folder name string, or an empty string if not found."""
+    folder_name = item.get("folder_name", "")
+    if not folder_name:
+        logging.warning(
+            f"No folder name found in item {item.get('alma_bib_id', 'unknown')}."
+        )
+    return folder_name
+
+
+def _get_file_type(item: dict) -> str:
+    """Get the file type element from a given item dictionary.
+
+    :param item: Dictionary containing metadata for a record.
+    :return: The file type string, or an empty string if not found."""
+    file_type = item.get("file_type", "")
+    if not file_type:
+        logging.warning(
+            f"No file type found in item {item.get('alma_bib_id', 'unknown')}."
+        )
+    return file_type
+
+
+def _get_asset_type(item: dict) -> str:
+    """Derive the asset type from the item dictionary, based on the file_name.
+
+    :param item: Dictionary containing metadata for a record.
+    :return: The asset type string, or an empty string if not found."""
+    file_name = _get_file_name(item)
+    if not file_name:
+        return ""
+    lower_file_name = file_name.lower()
+
+    raw_values = ["_raw", "_raw_", "capturefiles", "capturedfiles"]
+    if any(raw_value in lower_file_name for raw_value in raw_values):
+        return "Raw"
+    intermediate_values = ["onelite", "inter", "mti", "raw_mti"]
+    if any(
+        intermediate_value in lower_file_name
+        for intermediate_value in intermediate_values
+    ):
+        return "Intermediate"
+
+    # Count the number of "final" (including "finals")
+    # to determine if it's a final or derivative asset
+    final_count = lower_file_name.count("final")
+    if final_count == 1:
+        return "Final Version"
+    elif final_count > 1:
+        return "Derivative"
+
+    # If no specific asset type is determined, return an empty string
+    return ""
+
+
 def main() -> None:
     args = _get_arguments()
     config = _get_config(args.config_file)
@@ -330,6 +401,7 @@ def main() -> None:
         creators = _get_creators(bib_record, nlp_model)
         release_broadcast_date = _get_date(bib_record)
         language_name = _get_language_name(bib_record, language_map)
+        file_name = _get_file_name(row)
         # TODO: Add additional metadata fields as needed
 
         processed_row = {
@@ -340,7 +412,21 @@ def main() -> None:
             "creator": creators,
             "release_broadcast_date": release_broadcast_date,
             "language": language_name,
+            "file_name": file_name,
         }
+
+        # Add folder name only for DPX files
+        file_type = _get_file_type(row)
+        if file_type == "DPX":
+            folder_name = _get_folder_name(row)
+            if folder_name:
+                processed_row["folder_name"] = folder_name
+
+        # Add asset type only if it can be determined
+        asset_type = _get_asset_type(row)
+        if asset_type:
+            processed_row["asset_type"] = asset_type
+
         processed_data.append(processed_row)
 
     # Save processed data to output JSON file
