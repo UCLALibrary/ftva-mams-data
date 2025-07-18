@@ -192,56 +192,111 @@ def _strip_whitespace_and_punctuation(items: list[str]) -> list[str]:
     return [item.rstrip(string.punctuation).strip() for item in items]
 
 
-def _get_title_info(bib_record: Record) -> dict:
+def _get_main_title_from_bib(bib_record: Record) -> str:
+    """Extract the main title from a MARC bib record.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :return: Main title string, or an empty string if not found.
+    """
+    title_field = bib_record.get_fields("245")
+    if title_field:
+        main_title = title_field[0].get_subfields("a")
+        if main_title:
+            # 245 $a is NR, so take first item
+            return _strip_whitespace_and_punctuation(main_title)[0]
+    # If no main title found, log a warning and return an empty string.
+    logging.warning(f"No main title (245 $a) found in bib record {bib_record['001']}.")
+    return ""
+
+
+def _get_alternative_titles_from_bib(bib_record: Record) -> list[str]:
+    """Extract alternative titles from a MARC bib record.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :return: A list of alternative titles, or an empty list if none found.
+    """
+    alternative_titles = []
+    alternative_titles_field = bib_record.get_fields("246")
+    if alternative_titles_field:
+        for field in alternative_titles_field:
+            # Per specs, only take 246 $a if indicator1 is 0, 2, or 3 and indicator2 is empty
+            if field.indicator1 in ["0", "2", "3"] and field.indicator2 == " ":
+                alternative_titles += field.get_subfields("a")
+    return _strip_whitespace_and_punctuation(alternative_titles)
+
+
+def _get_series_title_from_bib(bib_record: Record, main_title: str) -> str:
+    """Determine if record describes series, and return main title as series title if so.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :return: The series title string, or an empty string.
+    """
+    title_field = bib_record.get_fields("245")
+    if title_field:
+        number_of_part = title_field[0].get_subfields("n")
+        name_of_part = title_field[0].get_subfields("p")
+        if number_of_part or name_of_part:
+            return main_title  # series title is main title if 245 $n or 245 $p exist
+    return ""
+
+
+def _get_episode_title_from_bib(bib_record: Record) -> str:
+    """Extract and format episode title from a MARC bib record.
+
+    :param bib_record: Pymarc Record object containing the bib data.
+    :return: The episode title, formatted according to specs, or an empty string.
+    """
+    name_of_part = []  # Init to avoid being potentially unbound
+    number_of_part = []
+    title_field = bib_record.get_fields("245")
+    if title_field:
+        name_of_part = title_field[0].get_subfields("p")
+        if name_of_part:
+            # Per specs, if there are multiple 245 $p, take the first one.
+            # Assign it as a list though, so it can be easily joined with other lists.
+            name_of_part = [_strip_whitespace_and_punctuation(name_of_part)[0]]
+
+        number_of_part = _strip_whitespace_and_punctuation(
+            title_field[0].get_subfields("n")
+        )
+
+    alternative_number_of_part = []
+    alternative_titles_field = bib_record.get_fields("246")
+    if alternative_titles_field:
+        for field in alternative_titles_field:
+            alternative_number_of_part += _strip_whitespace_and_punctuation(
+                field.get_subfields("n")
+            )
+
+    if name_of_part or number_of_part or alternative_number_of_part:
+        return ". ".join(name_of_part + number_of_part + alternative_number_of_part)
+    return ""
+
+
+def _get_titles(bib_record: Record) -> dict:
     """Extract title fields from a MARC bib record.
 
     :param bib_record: Pymarc Record object containing the bib data.
     :return: A dict with available title info.
     """
-
-    # Init empty dict for title info
     titles = {}
 
-    # Start by getting MARC fields and sub-fields
-    marc_245 = bib_record.get_fields("245")
-    # 245 is NR, so it's OK to only take first item
-    marc_245_a = marc_245[0].get_subfields("a") if marc_245 else []
-    marc_245_n = marc_245[0].get_subfields("n") if marc_245 else []
-    marc_245_p = marc_245[0].get_subfields("p") if marc_245 else []
-    # 246 is repeatable, so loop through available fields
-    marc_246 = bib_record.get_fields("246")
-    marc_246_a = []
-    marc_246_n = []
-    for field in marc_246:
-        # Per specs, only take 246 $a if indicator1 is 0, 2, or 3 and indicator2 is empty
-        if field.indicator1 in ["0", "2", "3"] and field.indicator2 == " ":
-            marc_246_a.extend(field.get_subfields("a"))
-        marc_246_n.extend(field.get_subfields("n"))
+    main_title = _get_main_title_from_bib(bib_record)
+    alternative_titles = _get_alternative_titles_from_bib(bib_record)
+    series_title = _get_series_title_from_bib(bib_record, main_title)
+    episode_title = _get_episode_title_from_bib(bib_record)
 
-    # Title logic
-    # 1. If no 245 $p OR 245 $n OR 246 $n, extract 245 $a as Title.
-    if not marc_245_p and not marc_245_n and not marc_246_n:
-        titles["title"] = marc_245_a[0]  # 245 $a is NR, so take first item
+    if not series_title and not episode_title:
+        titles["title"] = main_title
 
-    # Alternative Title logic
-    # 1. If more than one 246 (with first indicator 0 or 2 or 3)
-    # and second indicator blank, extract both as individual lines.
-    if marc_246_a:
-        titles["alternative_titles"] = marc_246_a  # Keep as list, per spec
+    if alternative_titles:
+        titles["alternative_titles"] = alternative_titles
 
-    # Series Title logic
-    # 1. If 245 $p OR 245 $n, extract 245 $a as Series Title.
-    # 2. If no match, ignore this field.
-    if marc_245_p or marc_245_n:
-        titles["series_title"] = marc_245_a[0]  # 245 $a is NR, so take first item
+    if series_title:
+        titles["series_title"] = series_title
 
-    # Episode Title logic (in summary)
-    # 1. If 245 $p AND (245 $n OR 246 $n), concat with ". "
-    if marc_245_p or marc_245_n or marc_246_n:
-        marc_245_n = _strip_whitespace_and_punctuation(marc_245_n)
-        marc_245_p = _strip_whitespace_and_punctuation(marc_245_p)
-        marc_246_n = _strip_whitespace_and_punctuation(marc_246_n)
-        titles["episode_title"] = ". ".join(marc_245_p + marc_245_n + marc_246_n)
+    if episode_title:
+        titles["episode_title"] = episode_title
 
     return titles
 
