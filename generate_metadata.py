@@ -301,7 +301,7 @@ def _get_title_info(bib_record: Record) -> dict:
     return titles
 
 
-def _write_output_file(output_file: str, data: list) -> None:
+def _write_output_file(output_file: str, data: dict) -> None:
     """Write processed data to a JSON file.
 
     :param output_file: Path to the output JSON file.
@@ -532,13 +532,12 @@ def main() -> None:
         language_name = _get_language_name(bib_record, language_map)
         file_name = _get_file_name(row)
         titles = _get_title_info(bib_record)
-        # TODO: Add additional metadata fields as needed
 
         processed_row = {
             "alma_bib_id": alma_mms_id,
-            "alma_holdings_id": row.get("alma_holdings_id"),
-            "pd_record_id": row.get("pd_record_id"),
-            "django_record_id": row.get("django_record_id"),
+            "inventory_id": row.get("fm_inventory_id"),
+            "dl_record_id": row.get("dl_record_id"),
+            "inventory_number": row.get("inventory_number"),
             "creator": creators,
             "release_broadcast_date": release_broadcast_date,
             "language": language_name,
@@ -560,8 +559,11 @@ def main() -> None:
 
         processed_data.append(processed_row)
 
-    # Save processed data to output JSON file
-    _write_output_file(args.output_file, processed_data)
+    # Tedial requires all records be under one top-level key called "assets".
+    final_data = {"assets": processed_data}
+
+    # Save processed data to output JSON file.
+    _write_output_file(args.output_file, final_data)
     logger.info(f"Processed data saved to {args.output_file}")
 
 
