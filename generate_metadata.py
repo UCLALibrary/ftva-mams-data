@@ -301,7 +301,7 @@ def _get_title_info(bib_record: Record) -> dict:
     return titles
 
 
-def _write_output_file(output_file: str, data: list) -> None:
+def _write_output_file(output_file: str, data: dict) -> None:
     """Write processed data to a JSON file.
 
     :param output_file: Path to the output JSON file.
@@ -559,8 +559,11 @@ def main() -> None:
 
         processed_data.append(processed_row)
 
-    # Save processed data to output JSON file
-    _write_output_file(args.output_file, processed_data)
+    # Tedial requires all records be under one top-level key called "assets".
+    final_data = {"assets": processed_data}
+
+    # Save processed data to output JSON file.
+    _write_output_file(args.output_file, final_data)
     logger.info(f"Processed data saved to {args.output_file}")
 
 
