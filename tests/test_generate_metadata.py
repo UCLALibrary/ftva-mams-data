@@ -10,6 +10,7 @@ from generate_metadata import (
     _get_episode_title_from_bib,
     _get_title_info,
     _get_asset_type,
+    _get_file_name,
 )
 
 
@@ -277,3 +278,23 @@ class TestGenerateMetadata(unittest.TestCase):
         }
         titles = _get_title_info(record)
         self.assertEqual(titles, expected_output)
+
+    def test_get_file_name_valid_extension(self):
+        item = {"file_name": "filename.wav"}
+        file_name = _get_file_name(item)
+        self.assertEqual(file_name, "filename")
+
+    def test_get_file_name_invalid_extension(self):
+        item = {"file_name": "filename.XYZ"}
+        file_name = _get_file_name(item)
+        self.assertEqual(file_name, "filename.XYZ")
+
+    def test_get_file_name_multiple_extension(self):
+        item = {"file_name": "filename.something.wav"}
+        file_name = _get_file_name(item)
+        self.assertEqual(file_name, "filename.something")
+
+    def test_get_file_name_no_extension(self):
+        item = {"file_name": "filename"}
+        file_name = _get_file_name(item)
+        self.assertEqual(file_name, "filename")
