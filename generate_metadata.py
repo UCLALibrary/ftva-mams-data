@@ -424,6 +424,29 @@ def _get_file_name(item: dict) -> str:
         logging.warning(
             f"No file name found in item {item.get('alma_bib_id', 'unknown')}."
         )
+
+    # Data currently has many "suffixes" (.something) which are not valid file suffixes.
+    # These are the ones we have which are known to be valid.
+    valid_suffixes = [
+        ".bup",
+        ".ifo",
+        ".qt",
+        ".vob",
+        ".fcp",
+        ".jpg",
+        ".m4v",
+        ".mov",
+        ".mp4",
+        ".mpg4",
+        ".ncor",
+        ".png",
+        ".raw",
+        ".wav",
+    ]
+    # Remove valid suffixes only, and only the final suffix (not Path.suffixes, which is a list).
+    if Path(file_name).suffix in valid_suffixes:
+        file_name = Path(file_name).stem
+
     return file_name
 
 
