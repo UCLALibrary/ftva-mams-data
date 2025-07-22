@@ -580,6 +580,16 @@ def main() -> None:
         if asset_type:
             processed_row["asset_type"] = asset_type
 
+        # For now, as final step before finishing with this row's data,
+        # be sure both file_name and folder_name are not set.  This may change in future,
+        # in which case this check should be done during a more appropriate earlier step.
+        if processed_row.get("file_name") and processed_row.get("folder_name"):
+            logger.warning(
+                "Both file_name and folder_name are set for DL record "
+                f"{processed_row.get("dl_record_id")}. Skipping row."
+            )
+            continue
+
         processed_data.append(processed_row)
 
     # Tedial requires all records be under one top-level key called "assets".
