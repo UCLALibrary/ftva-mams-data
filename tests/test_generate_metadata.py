@@ -10,6 +10,7 @@ from generate_metadata import (
     _get_episode_title_from_bib,
     _get_title_info,
     _get_asset_type,
+    _get_file_name,
 )
 
 
@@ -94,6 +95,41 @@ class TestGenerateMetadata(unittest.TestCase):
         record.add_field(Field(tag="008", data=field_008_data))
         language_name = _get_language_name(record, self.language_map)
         self.assertEqual(language_name, "French")
+
+    def test_get_asset_type_raw(self):
+        item = {"file_name": "example_raw_file.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Raw")
+
+    def test_get_asset_type_intermediate(self):
+        item = {"file_name": "example_file_mti.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Intermediate")
+
+    def test_get_asset_type_final(self):
+        item = {"file_name": "example_file_final.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Final Version")
+
+    def test_get_asset_type_derivative(self):
+        item = {"file_name": "example_file_finals_finals.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Derivative")
+
+    def test_get_asset_type_unknown(self):
+        item = {"file_name": "example_file.mov"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "")
+
+    def test_get_asset_type_dpx_intermediate(self):
+        item = {"folder_name": "example_folder_MTI", "file_type": "DPX"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Intermediate")
+
+    def test_get_asset_type_dpx_raw(self):
+        item = {"folder_name": "example_folder", "file_type": "DPX"}
+        asset_type = _get_asset_type(item)
+        self.assertEqual(asset_type, "Raw")
 
     def test_get_main_title_minimal_record(self):
         record = self.minimal_bib_record
@@ -236,9 +272,30 @@ class TestGenerateMetadata(unittest.TestCase):
         record.add_field(field_246_1, field_246_2)
 
         expected_output = {
+            "title": "F245a F245p. F245n. F246n_1. F246n_2",
             "series_title": "F245a",  # main title from minimal record
             "alternative_titles": ["F246a_1", "F246a_2"],
             "episode_title": "F245p. F245n. F246n_1. F246n_2",
         }
         titles = _get_title_info(record)
         self.assertEqual(titles, expected_output)
+
+    def test_get_file_name_valid_extension(self):
+        item = {"file_name": "filename.wav"}
+        file_name = _get_file_name(item)
+        self.assertEqual(file_name, "filename")
+
+    def test_get_file_name_invalid_extension(self):
+        item = {"file_name": "filename.XYZ"}
+        file_name = _get_file_name(item)
+        self.assertEqual(file_name, "filename.XYZ")
+
+    def test_get_file_name_multiple_extension(self):
+        item = {"file_name": "filename.something.wav"}
+        file_name = _get_file_name(item)
+        self.assertEqual(file_name, "filename.something")
+
+    def test_get_file_name_no_extension(self):
+        item = {"file_name": "filename"}
+        file_name = _get_file_name(item)
+        self.assertEqual(file_name, "filename")

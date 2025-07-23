@@ -286,11 +286,17 @@ def _get_title_info(bib_record: Record) -> dict:
     series_title = _get_series_title_from_bib(bib_record, main_title)
     episode_title = _get_episode_title_from_bib(bib_record)
 
-    if not series_title and not episode_title:
-        titles["title"] = main_title
-
+    # Alternative titles are independent of the others.
     if alternative_titles:
         titles["alternative_titles"] = alternative_titles
+
+    # The unqualified title ("title") depends on others.
+    if series_title and episode_title:
+        # Concatenate them with just a space, since series title
+        # ends with punctuation (usually... possible refinement later).
+        titles["title"] = f"{series_title} {episode_title}"
+    else:
+        titles["title"] = main_title
 
     if series_title:
         titles["series_title"] = series_title
@@ -422,8 +428,31 @@ def _get_file_name(item: dict) -> str:
     file_name = item.get("file_name", "")
     if not file_name:
         logging.warning(
-            f"No file name found in item {item.get('alma_bib_id', 'unknown')}."
+            f"No file name found in item for Alma MMS ID {item.get('alma_bib_id', 'unknown')}."
         )
+
+    # Data currently has many "suffixes" (.something) which are not valid file suffixes.
+    # These are the ones we have which are known to be valid.
+    valid_suffixes = [
+        ".bup",
+        ".ifo",
+        ".qt",
+        ".vob",
+        ".fcp",
+        ".jpg",
+        ".m4v",
+        ".mov",
+        ".mp4",
+        ".mpg4",
+        ".ncor",
+        ".png",
+        ".raw",
+        ".wav",
+    ]
+    # Remove valid suffixes only, and only the final suffix (not Path.suffixes, which is a list).
+    if Path(file_name).suffix in valid_suffixes:
+        file_name = Path(file_name).stem
+
     return file_name
 
 
@@ -556,6 +585,23 @@ def main() -> None:
         asset_type = _get_asset_type(row)
         if asset_type:
             processed_row["asset_type"] = asset_type
+
+        # For now, as final step before finishing with this row's data,
+        # be sure both file_name and folder_name are not set.  This may change in future,
+        # in which case this check should be done during a more appropriate earlier step.
+        if processed_row.get("file_name") and processed_row.get("folder_name"):
+            logger.warning(
+                "Both file_name and folder_name are set for DL record "
+                f"{processed_row.get("dl_record_id")}. Skipping row."
+            )
+            continue
+
+        # Also check if primary title ("title") is set, and skip if it is not.
+        if not processed_row.get("title"):
+            logger.warning(
+                f"Title must be set for Alma MMS ID {alma_mms_id}. Skipping row."
+            )
+            continue
 
         processed_data.append(processed_row)
 
