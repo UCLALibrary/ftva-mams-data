@@ -142,6 +142,7 @@ def main() -> None:
     elif len(matching_records) == 1:  # if 1 record returned, print it as JSON
         record_dict = _get_specific_fields(matching_records[0])
         record_json = json.dumps(record_dict, indent=4)
+        print(f"Single record found for inventory number {args.inventory_number}:")
         print(record_json)
     else:
         print(
