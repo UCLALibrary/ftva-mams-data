@@ -272,6 +272,7 @@ class TestGenerateMetadata(unittest.TestCase):
         record.add_field(field_246_1, field_246_2)
 
         expected_output = {
+            "title": "F245a F245p. F245n. F246n_1. F246n_2",
             "series_title": "F245a",  # main title from minimal record
             "alternative_titles": ["F246a_1", "F246a_2"],
             "episode_title": "F245p. F245n. F246n_1. F246n_2",
