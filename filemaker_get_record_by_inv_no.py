@@ -8,7 +8,7 @@ import tomllib
 
 # Figured this might be useful elsewhere
 # so declaring globally here
-FM_FIELD_SUBSET = (
+FM_PREVIEW_FIELDS = [
     "type",
     "inventory_no",
     "inventory_id",
@@ -28,7 +28,7 @@ FM_FIELD_SUBSET = (
     "episode no.",
     "film base",
     "donor_code",
-)
+]
 
 
 def _get_args() -> argparse.Namespace:
@@ -62,49 +62,56 @@ def _get_config(config_file_name: str) -> dict:
     return config
 
 
-def get_filemaker_record_by_inventory_number(
+def get_filemaker_records_by_inventory_number(
     fms: Server, inventory_number: str
-) -> Record | None:
+) -> list:
     """Given an inventory number sourced from the DL Django application,
     get the matching record from Filemaker via the API.
 
     :param fms Server: Server instance with authenticated session.
     :param str inventory_number: The inventory number with which to query Filemaker.
-    :return: Record instance representing matched record, or None if not found.
+    :return: A list with 0 or more Records.
     """
     # Use Filemaker syntax for exact match (==) in query
     query = [{"inventory_no": f"=={inventory_number}"}]
 
     try:
-        # Date format defaults to US format (MM-DD-YYYY);
-        # setting to ISO-8601 (YYYY-MM-DD) instead.
+        # `fms.find()` raises an exception if no records are found for query,
+        # rather than simply returning an empty `Foundset`--hence the `try` block.
+        # Also the date format in `fms.find()` defaults to US format (MM-DD-YYYY);
+        # setting it to ISO-8601 (YYYY-MM-DD) instead.
         foundset = fms.find(query, date_format="iso-8601")
-        found_count = len(list(foundset))
-        if found_count and found_count > 1:
-            # Using FileMakerError to raise a custom message here
-            # if multiple records are returned
-            raise FileMakerError(
-                error_code=None,
-                error_message=f"Multiple records returned for inventory number {inventory_number}",
-            )
-        return foundset[0]
+        # If no exception is raised, then foundset has 1 or more records.
+        # Return it as a list to be consistent with empty list returned if no records found.
+        return list(foundset)
     except FileMakerError as error:
-        print(f"An error occurred: {error}")
-        return None
+        # FileMakerError doesn't provide the error code as an integer,
+        # but rather as a string message, so check the string for
+        # error 401, which represents "no records found".
+        # See Filemaker error codes @https://help.claris.com/en/pro-help/content/error-codes.html
+        error_message = error.args[0]  # error message is first item in `args` tuple
+        if "error 401" in error_message:
+            return []  # if no records found, return an empty list
+        # Re-raise the error if it's something other than 401--no records found
+        raise error
 
 
-def _subset_filemaker_record(fm_record: Record) -> str:
-    """Subsets a Filemaker Record based on the configured subset of fields.
+def _get_specific_fields(
+    fm_record: Record, specific_fields: list[str] = FM_PREVIEW_FIELDS
+) -> dict:
+    """Gets the provided specific fields from a Filemaker Record instance.
 
     :param Record fm_record: A fmrest Record instance.
-    :return: A JSON string representing the subset of the Filemaker data.
+    :param list[str] specific_fields: A list of specific fields to get from the Record.
+    (Default: `FM_PREVIEW_FIELDS`)
+    :return: A dict with the specific fields from the Filemaker Record.
+    Fields are only included if they exist in the Record.
     """
-    output_dict = {
+    return {
         field: fm_record[field]
-        for field in FM_FIELD_SUBSET
+        for field in specific_fields
         if field in fm_record.to_dict()
     }
-    return json.dumps(output_dict, indent=4)
 
 
 def main() -> None:
@@ -127,11 +134,20 @@ def main() -> None:
     )
     fms.login()
 
-    matching_record = get_filemaker_record_by_inventory_number(
+    matching_records = get_filemaker_records_by_inventory_number(
         fms, args.inventory_number
     )
-    if matching_record:
-        print(_subset_filemaker_record(matching_record))
+    if not matching_records:
+        print(f"No records found for inventory number {args.inventory_number}")
+    elif len(matching_records) == 1:  # if 1 record returned, print it as JSON
+        record_dict = _get_specific_fields(matching_records[0])
+        record_json = json.dumps(record_dict, indent=4)
+        print(record_json)
+    else:
+        print(
+            f"Multiple ({len(matching_records)}) records"
+            f" found for inventory number {args.inventory_number}"
+        )
 
 
 if __name__ == "__main__":
