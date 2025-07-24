@@ -56,6 +56,9 @@ def get_alma_data_by_call_number(sru_url: str, call_number: str) -> dict:
         "?version=1.2&operation=searchRetrieve&recordSchema=marcxml"
         "&query=alma.PermanentCallNumber="
     )
+    # If the call number contains spaces, wrap the call number in quotes
+    if " " in call_number:
+        call_number = f'"{call_number}"'
     full_sru_url = f"{sru_url}{alma_url_parameters}{call_number}"
 
     response = requests.get(full_sru_url)
@@ -87,6 +90,11 @@ def get_relevant_fields_alma(alma_data: dict) -> list:
         .get("recordData", {})
         .get("record", [])
     )
+    # If there are multiple records in the response, there will be multiple obects
+    # in the topmost "record" list, i.e.:
+    # all_records = alma_data["searchRetrieveResponse"].get("records", {}).get("record", [])
+    # for item in all_records:
+    #     record = item.get("recordData", {}).get("record", [])
 
     # Relevant MARC fields to extract, defined by FTVA
     relevant_field_tags = ["001", "008", "245", "246", "260", "655"]
@@ -123,6 +131,8 @@ def main() -> None:
             f"Multiple ({number_of_records}) records found for call number "
             f"{args.call_number}"
         )
+        print("Full Alma data:")
+        print(json.dumps(alma_data, indent=4))
     else:
         print(f"Single record found for call number {args.call_number}")
         relevant_fields = get_relevant_fields_alma(alma_data)
