@@ -49,7 +49,7 @@ def get_alma_data_by_call_number(sru_url: str, call_number: str) -> dict:
 
     :param sru_url: Base URL for the Alma SRU API.
     :param call_number: Call number to search in Alma.
-    :return: JSON response from the Alma API.
+    :return: dictionary containing all data from original XML response.
     """
 
     alma_url_parameters = (
@@ -68,10 +68,11 @@ def get_alma_data_by_call_number(sru_url: str, call_number: str) -> dict:
     return xml_dict
 
 
-def _get_only_relevant_fields(alma_data: dict) -> list:
+def get_relevant_fields_alma(alma_data: dict) -> list:
     """Extracts only the relevant fields from the Alma data.
 
-    :param alma_data: The full Alma data dictionary, assumed to contain only one record.
+    :param alma_data: The full Alma data dictionary, as obtained from the SRU API,
+        assumed to contain only one record.
     :return: A list of relevant fields extracted from the Alma data.
     """
     # SearchRetrieveResponse is the top-level key in the Alma SRU response
@@ -124,7 +125,7 @@ def main() -> None:
         )
     else:
         print(f"Single record found for call number {args.call_number}")
-        relevant_fields = _get_only_relevant_fields(alma_data)
+        relevant_fields = get_relevant_fields_alma(alma_data)
         print(f"Relevant fields: {json.dumps(relevant_fields, indent=4)}")
 
 
