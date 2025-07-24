@@ -131,8 +131,6 @@ def main() -> None:
             f"Multiple ({number_of_records}) records found for call number "
             f"{args.call_number}"
         )
-        print("Full Alma data:")
-        print(json.dumps(alma_data, indent=4))
     else:
         print(f"Single record found for call number {args.call_number}")
         relevant_fields = get_relevant_fields_alma(alma_data)
