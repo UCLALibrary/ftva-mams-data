@@ -1,14 +1,6 @@
-# alma_api_client must be installed from the GitHub repository.
-# This also brings in pymarc, for MARC records.
-git+https://github.com/UCLALibrary/alma-api-client
+# Install `ftva-etl` package
+git+https://github.com/UCLALibrary/ftva-etl
+
 # For Excel conversion
 pandas==2.2.3
 openpyxl==3.1.5
-# for NLP
-spacy==3.7.5
-en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
-en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl
-# For Filemaker API access
-python-fmrest==1.7.5
-# For metadata extraction
-python-dateutil==2.9.0
