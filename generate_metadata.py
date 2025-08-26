@@ -11,6 +11,7 @@ from ftva_etl import (
     DigitalDataClient,
     get_mams_metadata,
 )
+from requests.exceptions import HTTPError
 
 
 def _get_arguments() -> argparse.Namespace:
@@ -69,7 +70,7 @@ def _get_logger(name: str | None = None) -> logging.Logger:
     logger = logging.getLogger(name)
     logging.basicConfig(
         filename=logging_file,
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s %(levelname)s: %(message)s",
     )
     return logger
@@ -106,12 +107,16 @@ def _get_uuid_by_record_id(
     :param record_id: The record ID of the record to get the UUID of.
     :param digital_data_client: The DigitalDataClient instance to use to get the record.
     :return: The UUID of the record."""
+    # Adding `try/except` block to prevent the program from crashing if a record
+    # is not found. This would happen if the dev and prod databases are out of sync.
     try:
         record = digital_data_client.get_record_by_id(record_id)
-        return record["uuid"]
-    except Exception as error:
-        print(error)
-        _get_logger().error(error)
+        return record.get("uuid")
+    except HTTPError as error:
+        if error.response.status_code == 404:
+            logger.error(f"Record {record_id} not found in Digital Data.")
+        else:
+            logger.error(error)
         return None
 
 
@@ -149,8 +154,9 @@ def _process_input_data(
     asset_data = []
     track_data = []
     for row in input_data:
+        # Adding `try/except` block to prevent the program from crashing if a record
+        # is not found. This would happen if the dev and prod databases are out of sync.
         try:
-            # Retrieve records, logging errors if they occur.
             digital_data_record = digital_data_client.get_record_by_id(
                 row["dl_record_id"]
             )
@@ -159,9 +165,11 @@ def _process_input_data(
             filemaker_record = filemaker_client.search_by_inventory_number(
                 inventory_number
             )[0]
-        except Exception as error:
-            print(error)
-            _get_logger().error(error)
+        except HTTPError as error:
+            if error.response.status_code == 404:
+                logger.error(f"Record {row['dl_record_id']} not found in Digital Data.")
+            else:
+                logger.error(error)
             continue
 
         # Initialize to None. Will be set to UUID if record is a track.
@@ -170,13 +178,20 @@ def _process_input_data(
             match_asset_uuid = _get_uuid_by_record_id(
                 row["match_asset"], digital_data_client
             )
+            # If match_asset_uuid is still None, there's an issue with the input data.
+            if match_asset_uuid is None:
+                logger.error(
+                    f"Record {row['dl_record_id']} is marked as a track, "
+                    "but no UUID for the match asset was found."
+                )
+                continue
 
         metadata_record = get_mams_metadata(
             bib_record, filemaker_record, digital_data_record, match_asset_uuid
         )
 
         # If metadata_record has `match_asset` value, it's a track.
-        if metadata_record.get("match_asset", None) is not None:
+        if metadata_record.get("match_asset"):
             track_data.append(metadata_record)
         else:
             asset_data.append(metadata_record)
@@ -188,9 +203,9 @@ def main() -> None:
     config = _get_config(args.config_file)
 
     # Read input file
-    _get_logger().info(f"Loading input data from {args.input_file}")
+    logger.info(f"Loading input data from {args.input_file}")
     input_data = _read_input_file(args.input_file)
-    _get_logger().info(f"Loaded {len(input_data)} records from input file.")
+    logger.info(f"Loaded {len(input_data)} records from input file.")
 
     alma_sru_client, filemaker_client, digital_data_client = _initialize_clients(config)
 
@@ -199,13 +214,20 @@ def main() -> None:
     )
 
     # Save processed data to separate output JSON files.
-    _write_output_file(Path(args.output_dir, "tracks.json"), track_data)
-    _write_output_file(Path(args.output_dir, "assets.json"), asset_data)
-    _get_logger().info(f"Processed data saved to '{args.output_dir}'")
+    output_filename_stem = Path(args.input_file).stem
+    _write_output_file(
+        Path(args.output_dir, f"{output_filename_stem}_tracks.json"), track_data
+    )
+    _write_output_file(
+        Path(args.output_dir, f"{output_filename_stem}_assets.json"), asset_data
+    )
+
+    logger.info(f"Processed {len(track_data)} tracks and {len(asset_data)} assets.")
+    logger.info(f"Processed data saved to '{args.output_dir}'")
 
 
 if __name__ == "__main__":
     # Make logger available at module level.
     # Otherwise, it's not available when running tests.
-    _get_logger()
+    logger = _get_logger()
     main()
