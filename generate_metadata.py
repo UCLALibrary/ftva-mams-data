@@ -99,27 +99,6 @@ def _write_output_file(output_file: str | Path, data: list[dict]) -> None:
         json.dump(data, file, indent=4)
 
 
-def _get_uuid_by_record_id(
-    record_id: int, digital_data_client: DigitalDataClient
-) -> str | None:
-    """Get the UUID of a record by its record ID.
-
-    :param record_id: The record ID of the record to get the UUID of.
-    :param digital_data_client: The DigitalDataClient instance to use to get the record.
-    :return: The UUID of the record."""
-    # Adding `try/except` block to prevent the program from crashing if a record
-    # is not found. This would happen if the dev and prod databases are out of sync.
-    try:
-        record = digital_data_client.get_record_by_id(record_id)
-        return record.get("uuid")
-    except HTTPError as error:
-        if error.response.status_code == 404:
-            logger.error(f"Record {record_id} not found in Digital Data.")
-        else:
-            logger.error(error)
-        return None
-
-
 def _initialize_clients(
     config: dict,
 ) -> tuple[AlmaSRUClient, FilemakerClient, DigitalDataClient]:
@@ -175,14 +154,11 @@ def _process_input_data(
         # Initialize to None. Will be set to UUID if record is a track.
         match_asset_uuid = None
         if row["Audio Track?"].lower().strip() == "yes":
-            match_asset_uuid = _get_uuid_by_record_id(
-                row["match_asset"], digital_data_client
-            )
-            # If match_asset_uuid is still None, there's an issue with the input data.
-            if match_asset_uuid is None:
+            match_asset_uuid = row["match_asset"]
+            if not match_asset_uuid:
                 logger.error(
                     f"Record {row['dl_record_id']} is marked as a track, "
-                    "but no UUID for the match asset was found."
+                    "but no UUID for the match asset is provided."
                 )
                 continue
 
