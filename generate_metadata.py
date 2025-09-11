@@ -129,7 +129,8 @@ def _process_input_data(
     :param alma_sru_client: The AlmaSRUClient instance to use to get the bib record.
     :param filemaker_client: The FilemakerClient instance to use to get the FM record.
     :param digital_data_client: The DigitalDataClient instance to use to get the DD record.
-    :return: A tuple of the list of metadata records, the count of assets, and the count of tracks."""
+    :return: A tuple of the list of metadata records, the count of assets, and the count of tracks.
+    """
     metadata_records = []
     asset_count = 0
     track_count = 0
