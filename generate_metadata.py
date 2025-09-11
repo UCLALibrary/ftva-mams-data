@@ -86,7 +86,7 @@ def _read_input_file(file_path: str) -> list[dict]:
         return [row for row in reader]
 
 
-def _write_output_file(output_file: str | Path, data: list[dict]) -> None:
+def _write_output_file(output_file: str | Path, data: dict | list[dict]) -> None:
     """Write processed data to a JSON file.
 
     :param output_file: Path to the output JSON file.
@@ -122,16 +122,18 @@ def _process_input_data(
     alma_sru_client: AlmaSRUClient,
     filemaker_client: FilemakerClient,
     digital_data_client: DigitalDataClient,
-) -> tuple[list, list]:
-    """Process input data and return lists of asset and track data.
+) -> tuple[list[dict], int, int]:
+    """Process input data and return a list of metadata records, plus counts of assets and tracks.
 
     :param input_data: The input data to process.
     :param alma_sru_client: The AlmaSRUClient instance to use to get the bib record.
     :param filemaker_client: The FilemakerClient instance to use to get the FM record.
     :param digital_data_client: The DigitalDataClient instance to use to get the DD record.
-    :return: A tuple of the asset and track data lists."""
-    asset_data = []
-    track_data = []
+    :return: A tuple of the list of metadata records, the count of assets, and the count of tracks.
+    """
+    metadata_records = []
+    asset_count = 0
+    track_count = 0
     for row in input_data:
         # Adding `try/except` block to prevent the program from crashing if a record
         # is not found. This would happen if the dev and prod databases are out of sync.
@@ -166,12 +168,17 @@ def _process_input_data(
             bib_record, filemaker_record, digital_data_record, match_asset_uuid
         )
 
-        # If metadata_record has `match_asset` value, it's a track.
+        # If metadata_record has `match_asset` value, it's a track;
+        # set `record_type` accordingly.
         if metadata_record.get("match_asset"):
-            track_data.append(metadata_record)
+            metadata_record["record_type"] = "track"
+            track_count += 1
         else:
-            asset_data.append(metadata_record)
-    return asset_data, track_data
+            metadata_record["record_type"] = "asset"
+            asset_count += 1
+
+        metadata_records.append(metadata_record)
+    return metadata_records, asset_count, track_count
 
 
 def main() -> None:
@@ -185,20 +192,24 @@ def main() -> None:
 
     alma_sru_client, filemaker_client, digital_data_client = _initialize_clients(config)
 
-    asset_data, track_data = _process_input_data(
+    metadata_records, asset_count, track_count = _process_input_data(
         input_data, alma_sru_client, filemaker_client, digital_data_client
     )
 
-    # Save processed data to separate output JSON files.
+    # Prepare output dict with wrapped metadata records.
+    output_dict = {
+        "media": {
+            "assets": metadata_records,
+        }
+    }
+
+    # Save processed data to JSON file named after the input file.
     output_filename_stem = Path(args.input_file).stem
     _write_output_file(
-        Path(args.output_dir, f"{output_filename_stem}_tracks.json"), track_data
-    )
-    _write_output_file(
-        Path(args.output_dir, f"{output_filename_stem}_assets.json"), asset_data
+        Path(args.output_dir, f"{output_filename_stem}.json"), output_dict
     )
 
-    logger.info(f"Processed {len(track_data)} tracks and {len(asset_data)} assets.")
+    logger.info(f"Processed {track_count} tracks and {asset_count} assets.")
     logger.info(f"Processed data saved to '{args.output_dir}'")
 
 
