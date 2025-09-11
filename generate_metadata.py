@@ -86,7 +86,7 @@ def _read_input_file(file_path: str) -> list[dict]:
         return [row for row in reader]
 
 
-def _write_output_file(output_file: str | Path, data: list[dict]) -> None:
+def _write_output_file(output_file: str | Path, data: dict | list[dict]) -> None:
     """Write processed data to a JSON file.
 
     :param output_file: Path to the output JSON file.
@@ -195,10 +195,17 @@ def main() -> None:
         input_data, alma_sru_client, filemaker_client, digital_data_client
     )
 
+    # Prepare output dict with wrapped metadata records.
+    output_dict = {
+        "media": {
+            "assets": metadata_records,
+        }
+    }
+
     # Save processed data to JSON file named after the input file.
     output_filename_stem = Path(args.input_file).stem
     _write_output_file(
-        Path(args.output_dir, f"{output_filename_stem}.json"), metadata_records
+        Path(args.output_dir, f"{output_filename_stem}.json"), output_dict
     )
 
     logger.info(f"Processed {track_count} tracks and {asset_count} assets.")
