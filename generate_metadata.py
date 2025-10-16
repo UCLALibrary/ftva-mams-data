@@ -11,6 +11,7 @@ from ftva_etl import (
     DigitalDataClient,
     get_mams_metadata,
 )
+from ftva_etl.metadata.utils import filter_by_inventory_number_and_library
 from requests.exceptions import HTTPError
 
 
@@ -142,7 +143,13 @@ def _process_input_data(
                 row["dl_record_id"]
             )
             inventory_number = digital_data_record["inventory_number"]
-            bib_record = alma_sru_client.search_by_call_number(inventory_number)[0]
+            # First get all results from Alma matching the inventory number
+            all_bib_records = alma_sru_client.search_by_call_number(inventory_number)
+            # Then take the first record that matches the inventory number and is from FTVA library.
+            # This prevents false matches from other libraries.
+            bib_record = filter_by_inventory_number_and_library(
+                all_bib_records, inventory_number
+            )[0]
             filemaker_record = filemaker_client.search_by_inventory_number(
                 inventory_number
             )[0]
