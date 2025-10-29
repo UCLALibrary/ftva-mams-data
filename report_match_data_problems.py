@@ -332,10 +332,11 @@ def build_inventory_index(
         # Always index the raw value
         index[value] = r
 
-        # Add suffix variants only if prefix matches known patterns
-        if any(value.startswith(prefix) for prefix in inv_no_prefixes):
-            for suffix in call_no_suffixes:
-                index[value + suffix] = r
+        if call_no_suffixes:
+            # Add suffix variants only if prefix matches known patterns
+            if any(value.startswith(prefix) for prefix in inv_no_prefixes):
+                for suffix in call_no_suffixes:
+                    index[value + suffix] = r
 
     return index
 
@@ -344,7 +345,6 @@ def find_inventory_number_match(
     digital_data_record: dict,
     fm_index: dict,
     alma_index: dict,
-    call_no_suffixes: list[str] = [" M", " R", " T"],
 ) -> dict:
     """For the given digital data record, find if there is exactly one matching
     FileMaker record and Alma record based on inventory number.
@@ -366,11 +366,6 @@ def find_inventory_number_match(
     alma_record = alma_index.get(digital_inventory_number)
     if alma_record:
         alma_matches.append(alma_record)
-    else:
-        for suffix in call_no_suffixes:
-            alma_record = alma_index.get(digital_inventory_number + suffix)
-            if alma_record:
-                alma_matches.append(alma_record)
 
     # If we don't have exactly one Alma match, return no match
     if len(alma_matches) != 1:
@@ -451,7 +446,7 @@ def main():
 
     print(
         "Retrieving 1-1-1 matches and finding data problems...\n"
-        "see `logs/` for more details."
+        "see logs/ for more details."
     )
 
     if not data_is_recent(args.digital_data_file, args.filemaker_file):
@@ -467,9 +462,9 @@ def main():
     digital_data = read_json_file(args.digital_data_file)
     filemaker_data = read_json_file(args.filemaker_file)
 
-    fm_record_count = len(filemaker_data)
+    dd_record_count = len(digital_data)
     logging.info(
-        f"Loaded {fm_record_count} Digital Data records, "
+        f"Loaded {dd_record_count} Digital Data records, "
         f"{len(alma_data)} Alma records, "
         f"and {len(filemaker_data)} FileMaker records."
     )
@@ -491,22 +486,31 @@ def main():
         alma_data, "Permanent Call Number", INV_NO_PREFIXES, CALL_NO_SUFFIXES
     )
     fm_index = build_inventory_index(
-        filemaker_data, "inventory_no", INV_NO_PREFIXES, CALL_NO_SUFFIXES
+        filemaker_data, "inventory_no", INV_NO_PREFIXES, []  # No suffixes for FM
     )
     logging.info("Pre-indexed Alma and FileMaker records by inventory number variants.")
 
     output_rows = []
-    for dd_record in digital_data:
+    seen_inventory_numbers = set()
+    for i, dd_record in enumerate(digital_data, start=1):
+
+        # Log progress every 5%
+        if i % max(1, dd_record_count // 20) == 0:
+            progress_percent = (i / dd_record_count) * 100
+            logging.info(
+                f"Processing DD records: {i}/{dd_record_count} ({progress_percent:.1f}%) completed."
+            )
+
         # Skip records with empty inventory number
         if dd_record.get("inventory_number", "") == "":
             continue
         # Skip records with an inventory number already found in output_rows
-        if any(
-            row["Digital Data Inventory Number"]
-            == dd_record.get("inventory_number", "")
-            for row in output_rows
-        ):
+        inv_num = dd_record.get("inventory_number", "").strip()
+        if not inv_num or inv_num in seen_inventory_numbers:
             continue
+        seen_inventory_numbers.add(inv_num)
+
+        # Find matching FileMaker and Alma records
         match = find_inventory_number_match(dd_record, fm_index, alma_index)
         fm_record = match["fm_record"]
         alma_record_dict = match["alma_record"]
@@ -521,13 +525,6 @@ def main():
             alma_record, fm_record, dd_record, valid_language_codes
         )
         output_rows.append(issues)
-
-        # Log progress every 5% of FileMaker records processed
-        if len(output_rows) % max(1, fm_record_count // 20) == 0:
-            logging.info(
-                f"Processed {len(output_rows)} records "
-                f"({len(output_rows) / fm_record_count:.1%} of FileMaker records)."
-            )
 
     # Write output to CSV
     output_fieldnames = [
