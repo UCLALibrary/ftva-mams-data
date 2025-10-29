@@ -546,6 +546,10 @@ def main():
         writer.writeheader()
         for row in output_rows:
             writer.writerow(row)
+    logging.info(
+        f"Wrote data match issues report to data_match_issues_report.csv with "
+        f"{len(output_rows)} rows."
+    )
 
 
 if __name__ == "__main__":
