@@ -330,13 +330,13 @@ def build_inventory_index(
             continue
 
         # Always index the raw value
-        index[value] = r
+        index.setdefault(value, []).append(r)
 
         if call_no_suffixes:
             # Add suffix variants only if prefix matches known patterns
             if any(value.startswith(prefix) for prefix in inv_no_prefixes):
                 for suffix in call_no_suffixes:
-                    index[value + suffix] = r
+                    index.setdefault(value + suffix, []).append(r)
 
     return index
 
@@ -360,31 +360,18 @@ def find_inventory_number_match(
     if not digital_inventory_number:
         return {"fm_record": None, "alma_record": None}
 
-    fm_matches = []
-    alma_matches = []
-    # Start with Alma records, as there are fewer
-    alma_record = alma_index.get(digital_inventory_number)
-    if alma_record:
-        alma_matches.append(alma_record)
+    alma_matches = alma_index.get(digital_inventory_number, [])
 
-    # If we don't have exactly one Alma match, return no match
     if len(alma_matches) != 1:
+        # No Alma match or ambiguous (duplicate)
         return {"fm_record": None, "alma_record": None}
 
-    # If we do have exactly one Alma match, proceed to find FileMaker matches
-    alma_record = alma_matches[0]
+    fm_matches = fm_index.get(digital_inventory_number, [])
+    if len(fm_matches) != 1:
+        # No FileMaker match or ambiguous
+        return {"fm_record": None, "alma_record": None}
 
-    fm_record = fm_index.get(digital_inventory_number)
-    if fm_record:
-        fm_matches.append(fm_record)
-
-    # If we have exactly one FileMaker match and one Alma match, return them
-    if len(fm_matches) == 1:
-        fm_record = fm_matches[0]
-        return {"fm_record": fm_record, "alma_record": alma_record}
-
-    # No unique match found
-    return {"fm_record": None, "alma_record": None}
+    return {"fm_record": fm_matches[0], "alma_record": alma_matches[0]}
 
 
 def report_data_match_issues(
