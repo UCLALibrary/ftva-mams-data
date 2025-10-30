@@ -204,7 +204,7 @@ def lacks_attribution_phrase(record: Record) -> str:
     :return: "Yes" if no relevant attribution phrase is found, empty string otherwise.
     """
 
-    field_245 = record.get_fields("245")[0]  # only one 245 field per record
+    field_245 = record.get("245")  # only one 245 field per record
     if not field_245:
         return "Yes"
     attribution_phrases = [
@@ -231,15 +231,14 @@ def get_alma_title(record: Record) -> str:
     :return: The title string if found, empty string otherwise.
     """
 
-    field_245 = record.get_fields("245")
+    field_245 = record.get("245")
     if field_245:
-        field = field_245[0]
-        title = field["a"] if "a" in field else ""
+        title = field_245["a"] if "a" in field_245 else ""
 
         # Remove trailing punctuation
         title = title.rstrip(" /:;,.")
         # Safely obtain indicators (may be None or contain None values, according to type checker)
-        indicators = getattr(field, "indicators", None) or ["", ""]
+        indicators = getattr(field_245, "indicators", None) or ["", ""]
         article_index = (
             indicators[1] if len(indicators) > 1 and indicators[1] is not None else ""
         )
