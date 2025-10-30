@@ -4,3 +4,7 @@ xmltodict==0.14.2
 # For Excel conversion
 pandas==2.2.3
 openpyxl==3.1.5
+# For title matching
+strsimpy==0.2.1
+# Alma API and analytics client 
+git+https://github.com/UCLALibrary/alma-api-client
