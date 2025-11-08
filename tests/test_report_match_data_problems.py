@@ -5,6 +5,7 @@ from report_match_data_problems import (
     invalid_language,
     no_26x_date,
     lacks_attribution_phrase,
+    get_alma_title,
 )
 
 
@@ -54,7 +55,12 @@ class TestReportMatchDataProblems(unittest.TestCase):
             Field(
                 tag="245",
                 indicators=Indicators("1", "0"),
-                subfields=[Subfield("a", title)],
+                subfields=[
+                    Subfield("a", title),
+                    Subfield("b", "Remainder of title"),
+                    Subfield("n", "Number of part"),
+                    Subfield("p", "Name of part"),
+                ],
             )
         )
         return record
@@ -152,3 +158,73 @@ class TestReportMatchDataProblems(unittest.TestCase):
         self.assertFalse(lacks_attribution_phrase(record_with_directed))
         self.assertTrue(lacks_attribution_phrase(record_without_phrase))
         self.assertFalse(lacks_attribution_phrase(record_with_a_film_by))
+
+    def test_get_alma_title_with_leading_articles(self):
+        records = []
+        articles = ["The ", "A ", "An "]
+
+        for article in articles:
+            record = Record()
+            record.add_field(
+                Field(
+                    tag="245",
+                    # Indicator 2 is offset of leading article
+                    indicators=Indicators("1", len(article)),
+                    subfields=[
+                        Subfield("a", f"{article}main title"),
+                        Subfield("b", "Remainder of title"),
+                        Subfield("n", "Number of part"),
+                        Subfield("p", "Name of part"),
+                    ],
+                )
+            )
+            records.append((record, article))
+
+        for record, article in records:
+            with self.subTest(record=record):
+                title = get_alma_title(record)
+                # Leading article should be moved to end of $a
+                expected_title = (
+                    f"main title, {article.strip()}. Remainder of title. "
+                    "Number of part. Name of part"
+                )
+                self.assertEqual(title, expected_title)
+
+    def test_get_alma_title_without_leading_article(self):
+        record = Record()
+        record.add_field(
+            Field(
+                tag="245",
+                indicators=Indicators("1", "0"),
+                subfields=[
+                    Subfield("a", "Main title"),
+                    Subfield("b", "Remainder of title"),
+                    Subfield("n", "Number of part"),
+                    Subfield("p", "Name of part"),
+                ],
+            )
+        )
+        title = get_alma_title(record)
+        expected_title = "Main title. Remainder of title. Number of part. Name of part"
+        self.assertEqual(title, expected_title)
+
+    def test_get_alma_title_with_bad_indicator(self):
+        record = Record()
+        record.add_field(
+            Field(
+                tag="245",
+                indicators=Indicators("1", "X"),
+                subfields=[
+                    Subfield("a", "The main title"),
+                    Subfield("b", "Remainder of title"),
+                    Subfield("n", "Number of part"),
+                    Subfield("p", "Name of part"),
+                ],
+            )
+        )
+        title = get_alma_title(record)
+        # If indicator is bad, leading article should not be moved
+        expected_title = (
+            "The main title. Remainder of title. Number of part. Name of part"
+        )
+        self.assertEqual(title, expected_title)
