@@ -8,6 +8,7 @@ from strsimpy.normalized_levenshtein import NormalizedLevenshtein
 from pymarc import Record
 from datetime import datetime, timedelta
 from ftva_etl.metadata.marc import _get_date_from_bib
+from ftva_etl.metadata.utils import strip_whitespace_and_punctuation
 from alma_api_client import AlmaAPIClient, BibRecord
 
 
@@ -224,8 +225,9 @@ def lacks_attribution_phrase(record: Record) -> str:
 
 
 def get_alma_title(record: Record) -> str:
-    """Get the title from a MARC record from 245 $a only, removing trailing punctuation
-    and moving leading articles to the end.
+    """Construct title from MARC record fields 245 $a, $b, $n, and $p,
+    removing trailing punctuation and whitespace from each field,
+    and moving leading articles to the end of 245 $a.
 
     :param record: The MARC record to extract the title from.
     :return: The title string if found, empty string otherwise.
@@ -233,31 +235,50 @@ def get_alma_title(record: Record) -> str:
 
     field_245 = record.get("245")
     if field_245:
-        title = field_245["a"] if "a" in field_245 else ""
+        # Repeating code from `ftva_etl` to get title components.
+        # Not very DRY, but it will do for the purposes of this report.
+        def _get_first_stripped(subfields: list[str]) -> str:
+            stripped = strip_whitespace_and_punctuation(subfields)
+            return stripped[0] if stripped else ""
 
-        # Remove trailing punctuation
-        title = title.rstrip(" /:;,.")
+        main_title = _get_first_stripped(field_245.get_subfields("a"))
+        remainder_of_title = _get_first_stripped(field_245.get_subfields("b"))
+        number_of_part = _get_first_stripped(field_245.get_subfields("n"))
+        name_of_part = _get_first_stripped(field_245.get_subfields("p"))
+
         # Safely obtain indicators (may be None or contain None values, according to type checker)
         indicators = getattr(field_245, "indicators", None) or ["", ""]
         article_index = (
             indicators[1] if len(indicators) > 1 and indicators[1] is not None else ""
         )
+        bad_non_filing_chars = False
 
         if article_index in ["0", "_", ""]:  # No non-filing characters
-            return title.strip()
+            bad_non_filing_chars = True
 
         try:
             non_filing_chars = int(article_index)
         except (ValueError, TypeError):
-            # If indicator is not a valid integer, treat as no non-filing characters
-            return title.strip()
+            # If indicator is not a valid integer, treat as bad non-filing characters
+            bad_non_filing_chars = True
 
-        if non_filing_chars > 0 and len(title) > non_filing_chars:
+        # Move leading article to end of the main title (i.e. 245 $a),
+        # if indicated by non-filing chars.
+        if (
+            not bad_non_filing_chars
+            and non_filing_chars > 0
+            and len(main_title) > non_filing_chars
+        ):
             # Move leading article to end
-            leading_article = title[:non_filing_chars].strip()
-            main_title = title[non_filing_chars:].strip()
-            title = f"{main_title}, {leading_article}"
-            return title.strip()
+            leading_article = main_title[:non_filing_chars].strip()
+            main_title = main_title[non_filing_chars:].strip()
+            main_title = f"{main_title}, {leading_article}"
+
+        # Return the joined title components, filtering out any empty strings.
+        return ". ".join(
+            filter(None, [main_title, remainder_of_title, number_of_part, name_of_part])
+        )
+
     return ""
 
 
@@ -269,7 +290,10 @@ def get_filemaker_title(fm_record: dict) -> str:
     """
 
     title = fm_record.get("title", "")
-    return title.strip()
+    ep_title = fm_record.get("ep_title", "")
+    ep_no = fm_record.get("ep_no", "")
+    # Return the joined title components, filtering out any empty strings.
+    return ". ".join(filter(None, [title, ep_title, ep_no]))
 
 
 def get_title_match_score(
