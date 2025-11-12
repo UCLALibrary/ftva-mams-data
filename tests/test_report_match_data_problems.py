@@ -169,7 +169,7 @@ class TestReportMatchDataProblems(unittest.TestCase):
                 Field(
                     tag="245",
                     # Indicator 2 is offset of leading article
-                    indicators=Indicators("1", len(article)),
+                    indicators=Indicators("1", str(len(article))),
                     subfields=[
                         Subfield("a", f"{article}main title"),
                         Subfield("b", "Remainder of title"),
@@ -182,13 +182,14 @@ class TestReportMatchDataProblems(unittest.TestCase):
 
         for record, article in records:
             with self.subTest(record=record):
-                title = get_alma_title(record)
+                title, check_245_indicator_2 = get_alma_title(record)
                 # Leading article should be moved to end of $a
                 expected_title = (
                     f"main title, {article.strip()}. Remainder of title. "
                     "Number of part. Name of part"
                 )
                 self.assertEqual(title, expected_title)
+                self.assertFalse(check_245_indicator_2)
 
     def test_get_alma_title_without_leading_article(self):
         record = Record()
@@ -204,16 +205,48 @@ class TestReportMatchDataProblems(unittest.TestCase):
                 ],
             )
         )
-        title = get_alma_title(record)
+        title, check_245_indicator_2 = get_alma_title(record)
         expected_title = "Main title. Remainder of title. Number of part. Name of part"
         self.assertEqual(title, expected_title)
+        self.assertFalse(check_245_indicator_2)
 
-    def test_get_alma_title_with_bad_indicator(self):
+    def test_get_alma_title_with_bad_indicators(self):
+        # Note 0 can be coerced to an integer, but is not a possible article length
+        bad_indicators = ["X", "_", "", "0"]
+        records = []
+        for bad_indicator in bad_indicators:
+            record = Record()
+            record.add_field(
+                Field(
+                    tag="245",
+                    indicators=Indicators("1", bad_indicator),
+                    subfields=[
+                        Subfield("a", "The main title"),  # Has leading English article
+                        Subfield("b", "Remainder of title"),
+                        Subfield("n", "Number of part"),
+                        Subfield("p", "Name of part"),
+                    ],
+                )
+            )
+            records.append(record)
+        for record in records:
+            with self.subTest(record=record):
+                title, check_245_indicator_2 = get_alma_title(record)
+                # If indicator is bad, leading English articles should still be moved
+                expected_title = (
+                    "main title, The. Remainder of title. Number of part. Name of part"
+                )
+                self.assertEqual(title, expected_title)
+                self.assertTrue(check_245_indicator_2)
+
+    def test_get_alma_title_indicator_article_mismatch(self):
         record = Record()
         record.add_field(
             Field(
                 tag="245",
-                indicators=Indicators("1", "X"),
+                indicators=Indicators(
+                    "1", "2"
+                ),  # indicator 2 is wrong length for article
                 subfields=[
                     Subfield("a", "The main title"),
                     Subfield("b", "Remainder of title"),
@@ -222,9 +255,34 @@ class TestReportMatchDataProblems(unittest.TestCase):
                 ],
             )
         )
-        title = get_alma_title(record)
-        # If indicator is bad, leading article should not be moved
+        title, check_245_indicator_2 = get_alma_title(record)
+        # Leading article should still be moved to end,
+        # despite the indicator mismatch.
         expected_title = (
-            "The main title. Remainder of title. Number of part. Name of part"
+            "main title, The. Remainder of title. Number of part. Name of part"
         )
         self.assertEqual(title, expected_title)
+        self.assertTrue(check_245_indicator_2)
+
+    def test_get_alma_title_non_english_article(self):
+        record = Record()
+        record.add_field(
+            Field(
+                tag="245",
+                indicators=Indicators("1", "3"),
+                subfields=[
+                    Subfield("a", "La main title"),  # Non-English article
+                    Subfield("b", "Remainder of title"),
+                    Subfield("n", "Number of part"),
+                    Subfield("p", "Name of part"),
+                ],
+            )
+        )
+        title, check_245_indicator_2 = get_alma_title(record)
+        # So long as it's valid, the non-filing chars should be honored,
+        # even if it's not an English article
+        expected_title = (
+            "main title, La. Remainder of title. Number of part. Name of part"
+        )
+        self.assertEqual(title, expected_title)
+        self.assertFalse(check_245_indicator_2)
