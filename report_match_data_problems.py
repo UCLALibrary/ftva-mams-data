@@ -224,23 +224,40 @@ def lacks_attribution_phrase(record: Record) -> str:
     return "Yes"
 
 
-def get_alma_title(record: Record) -> str:
+def get_alma_title(record: Record) -> tuple[str, bool]:
     """Construct title from MARC record fields 245 $a, $b, $n, and $p,
     removing trailing punctuation and whitespace from each field,
     and moving leading articles to the end of 245 $a.
 
     :param record: The MARC record to extract the title from.
-    :return: The title string if found, empty string otherwise.
+    :return: A tuple containing the normalized title string and a boolean indicating
+    whether 245 indicator 2 needs to be checked.
     """
+
+    # Some scope-specific helper functions
+    def _starts_with_article(title: str, articles: tuple[str, ...]) -> str | None:
+        """Check if a title starts with any of the given articles,
+        in a case-insensitive manner,
+        and return the article if found, otherwise None.
+        """
+        for article in articles:
+            if title.lower().startswith(article):
+                return article
+        return None
+
+    def _move_article_to_end(title: str, article_offset: int) -> str:
+        """Move the article at the given offset to the end of the title."""
+        leading_article = title[:article_offset].strip()
+        title = title[article_offset:].strip()
+        return f"{title}, {leading_article}"
+
+    def _get_first_stripped(subfields: list[str]) -> str:
+        """Get the first stripped subfield from the given list of subfields."""
+        stripped = strip_whitespace_and_punctuation(subfields)
+        return stripped[0] if stripped else ""
 
     field_245 = record.get("245")
     if field_245:
-        # Repeating code from `ftva_etl` to get title components.
-        # Not very DRY, but it will do for the purposes of this report.
-        def _get_first_stripped(subfields: list[str]) -> str:
-            stripped = strip_whitespace_and_punctuation(subfields)
-            return stripped[0] if stripped else ""
-
         main_title = _get_first_stripped(field_245.get_subfields("a"))
         remainder_of_title = _get_first_stripped(field_245.get_subfields("b"))
         number_of_part = _get_first_stripped(field_245.get_subfields("n"))
@@ -251,35 +268,49 @@ def get_alma_title(record: Record) -> str:
         article_index = (
             indicators[1] if len(indicators) > 1 and indicators[1] is not None else ""
         )
-        bad_non_filing_chars = False
 
-        if article_index in ["0", "_", ""]:  # No non-filing characters
-            bad_non_filing_chars = True
-
+        # If indicator is not a valid integer, treat as no non-filing characters
         try:
             non_filing_chars = int(article_index)
         except (ValueError, TypeError):
-            # If indicator is not a valid integer, treat as bad non-filing characters
-            bad_non_filing_chars = True
+            non_filing_chars = None
 
-        # Move leading article to end of the main title (i.e. 245 $a),
-        # if indicated by non-filing chars.
-        if (
-            not bad_non_filing_chars
-            and non_filing_chars > 0
-            and len(main_title) > non_filing_chars
-        ):
-            # Move leading article to end
-            leading_article = main_title[:non_filing_chars].strip()
-            main_title = main_title[non_filing_chars:].strip()
-            main_title = f"{main_title}, {leading_article}"
+        # Flags for use below
+        check_245_indicator_2 = False
+        english_articles = ("a ", "an ", "the ")
+        starting_article = _starts_with_article(main_title, english_articles)
 
-        # Return the joined title components, filtering out any empty strings.
-        return ". ".join(
+        if starting_article and non_filing_chars:
+            # Make sure title is long enough for article to be moved
+            if len(main_title) > non_filing_chars:
+                # If non_filing_chars does not match article length,
+                # set check_245_indicator_2 to True.
+                # This catches the case where non_filing_chars is 0,
+                # as that is an integer, but not a possible article length.
+                if non_filing_chars != len(starting_article):
+                    check_245_indicator_2 = True
+                # Can use article length regardless,
+                # since if non_filing_chars == len(starting_article),
+                # it doesn't matter which length is used.
+                main_title = _move_article_to_end(main_title, len(starting_article))
+        # If non_filing_chars can't be coerced to an integer,
+        # but there is an English article, set check_245_indicator_2 to True
+        # and move the article using the article length.
+        elif starting_article and not non_filing_chars:
+            check_245_indicator_2 = True
+            main_title = _move_article_to_end(main_title, len(starting_article))
+        # If no English article and non_filing_chars is a non-zero integer,
+        # move the article using the non_filing_chars value.
+        elif not starting_article and non_filing_chars:
+            main_title = _move_article_to_end(main_title, non_filing_chars)
+
+        # Return the normalized title, filtering out any empty strings.
+        normalized_title = ". ".join(
             filter(None, [main_title, remainder_of_title, number_of_part, name_of_part])
         )
+        return normalized_title, check_245_indicator_2
 
-    return ""
+    return "", False
 
 
 def get_filemaker_title(fm_record: dict) -> str:
@@ -443,8 +474,11 @@ def report_data_match_issues(
             if marc_record and fm_record
             else 0
         ),
-        "Alma title": get_alma_title(marc_record) if marc_record else "",
+        "Alma title": get_alma_title(marc_record)[0] if marc_record else "",
         "Filemaker title": get_filemaker_title(fm_record) if fm_record else "",
+        "Check 245 indicator 2": (
+            ("Yes" if get_alma_title(marc_record)[1] else "No") if marc_record else ""
+        ),
     }
     return data
 
