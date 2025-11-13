@@ -8,6 +8,7 @@ from strsimpy.normalized_levenshtein import NormalizedLevenshtein
 from pymarc import Record
 from datetime import datetime, timedelta
 from ftva_etl.metadata.marc import _get_date_from_bib
+from ftva_etl.metadata.utils import strip_whitespace_and_punctuation
 from alma_api_client import AlmaAPIClient, BibRecord
 
 
@@ -223,42 +224,93 @@ def lacks_attribution_phrase(record: Record) -> str:
     return "Yes"
 
 
-def get_alma_title(record: Record) -> str:
-    """Get the title from a MARC record from 245 $a only, removing trailing punctuation
-    and moving leading articles to the end.
+def get_alma_title(record: Record) -> tuple[str, bool]:
+    """Construct title from MARC record fields 245 $a, $b, $n, and $p,
+    removing trailing punctuation and whitespace from each field,
+    and moving leading articles to the end of 245 $a.
 
     :param record: The MARC record to extract the title from.
-    :return: The title string if found, empty string otherwise.
+    :return: A tuple containing the normalized title string and a boolean indicating
+    whether 245 indicator 2 needs to be checked.
     """
+
+    # Some scope-specific helper functions
+    def _starts_with_article(title: str, articles: tuple[str, ...]) -> str | None:
+        """Check if a title starts with any of the given articles,
+        in a case-insensitive manner,
+        and return the article if found, otherwise None.
+        """
+        for article in articles:
+            if title.lower().startswith(article):
+                return article
+        return None
+
+    def _move_article_to_end(title: str, article_offset: int) -> str:
+        """Move the article at the given offset to the end of the title."""
+        leading_article = title[:article_offset].strip()
+        title = title[article_offset:].strip()
+        return f"{title}, {leading_article}"
+
+    def _get_first_stripped(subfields: list[str]) -> str:
+        """Get the first stripped subfield from the given list of subfields."""
+        stripped = strip_whitespace_and_punctuation(subfields)
+        return stripped[0] if stripped else ""
 
     field_245 = record.get("245")
     if field_245:
-        title = field_245["a"] if "a" in field_245 else ""
+        main_title = _get_first_stripped(field_245.get_subfields("a"))
+        remainder_of_title = _get_first_stripped(field_245.get_subfields("b"))
+        number_of_part = _get_first_stripped(field_245.get_subfields("n"))
+        name_of_part = _get_first_stripped(field_245.get_subfields("p"))
 
-        # Remove trailing punctuation
-        title = title.rstrip(" /:;,.")
         # Safely obtain indicators (may be None or contain None values, according to type checker)
         indicators = getattr(field_245, "indicators", None) or ["", ""]
         article_index = (
             indicators[1] if len(indicators) > 1 and indicators[1] is not None else ""
         )
 
-        if article_index in ["0", "_", ""]:  # No non-filing characters
-            return title.strip()
-
+        # If indicator is not a valid integer, treat as no non-filing characters
         try:
             non_filing_chars = int(article_index)
         except (ValueError, TypeError):
-            # If indicator is not a valid integer, treat as no non-filing characters
-            return title.strip()
+            non_filing_chars = None
 
-        if non_filing_chars > 0 and len(title) > non_filing_chars:
-            # Move leading article to end
-            leading_article = title[:non_filing_chars].strip()
-            main_title = title[non_filing_chars:].strip()
-            title = f"{main_title}, {leading_article}"
-            return title.strip()
-    return ""
+        # Flags for use below
+        check_245_indicator_2 = False
+        english_articles = ("a ", "an ", "the ")
+        starting_article = _starts_with_article(main_title, english_articles)
+
+        if starting_article and non_filing_chars:
+            # Make sure title is long enough for article to be moved
+            if len(main_title) > non_filing_chars:
+                # If non_filing_chars does not match article length,
+                # set check_245_indicator_2 to True.
+                # This catches the case where non_filing_chars is 0,
+                # as that is an integer, but not a possible article length.
+                if non_filing_chars != len(starting_article):
+                    check_245_indicator_2 = True
+                # Can use article length regardless,
+                # since if non_filing_chars == len(starting_article),
+                # it doesn't matter which length is used.
+                main_title = _move_article_to_end(main_title, len(starting_article))
+        # If non_filing_chars can't be coerced to an integer,
+        # but there is an English article, set check_245_indicator_2 to True
+        # and move the article using the article length.
+        elif starting_article and not non_filing_chars:
+            check_245_indicator_2 = True
+            main_title = _move_article_to_end(main_title, len(starting_article))
+        # If no English article and non_filing_chars is a non-zero integer,
+        # move the article using the non_filing_chars value.
+        elif not starting_article and non_filing_chars:
+            main_title = _move_article_to_end(main_title, non_filing_chars)
+
+        # Return the normalized title, filtering out any empty strings.
+        normalized_title = ". ".join(
+            filter(None, [main_title, remainder_of_title, number_of_part, name_of_part])
+        )
+        return normalized_title, check_245_indicator_2
+
+    return "", False
 
 
 def get_filemaker_title(fm_record: dict) -> str:
@@ -269,7 +321,10 @@ def get_filemaker_title(fm_record: dict) -> str:
     """
 
     title = fm_record.get("title", "")
-    return title.strip()
+    ep_title = fm_record.get("ep_title", "")
+    ep_no = fm_record.get("ep_no", "")
+    # Return the joined title components, filtering out any empty strings.
+    return ". ".join(filter(None, [title, ep_title, ep_no]))
 
 
 def get_title_match_score(
@@ -285,7 +340,7 @@ def get_title_match_score(
     :return: The normalized Levenshtein similarity score between the two titles.
     """
 
-    alma_title = get_alma_title(alma_record)
+    alma_title = get_alma_title(alma_record)[0]
     fm_title = get_filemaker_title(fm_record)
     if not alma_title or not fm_title:
         return 0
@@ -419,8 +474,11 @@ def report_data_match_issues(
             if marc_record and fm_record
             else 0
         ),
-        "Alma title": get_alma_title(marc_record) if marc_record else "",
+        "Alma title": get_alma_title(marc_record)[0] if marc_record else "",
         "Filemaker title": get_filemaker_title(fm_record) if fm_record else "",
+        "Check 245 indicator 2": (
+            ("Yes" if get_alma_title(marc_record)[1] else "") if marc_record else ""
+        ),
     }
     return data
 
@@ -524,6 +582,7 @@ def main():
         "Title match score",
         "Alma title",
         "Filemaker title",
+        "Check 245 indicator 2",
     ]
     with open(
         "data_match_issues_report.csv", "w", newline="", encoding="utf-8"
