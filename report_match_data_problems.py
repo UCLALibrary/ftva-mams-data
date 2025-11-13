@@ -477,7 +477,7 @@ def report_data_match_issues(
         "Alma title": get_alma_title(marc_record)[0] if marc_record else "",
         "Filemaker title": get_filemaker_title(fm_record) if fm_record else "",
         "Check 245 indicator 2": (
-            ("Yes" if get_alma_title(marc_record)[1] else "No") if marc_record else ""
+            ("Yes" if get_alma_title(marc_record)[1] else "") if marc_record else ""
         ),
     }
     return data
@@ -582,6 +582,7 @@ def main():
         "Title match score",
         "Alma title",
         "Filemaker title",
+        "Check 245 indicator 2",
     ]
     with open(
         "data_match_issues_report.csv", "w", newline="", encoding="utf-8"
