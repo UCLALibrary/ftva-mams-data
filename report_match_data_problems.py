@@ -340,7 +340,7 @@ def get_title_match_score(
     :return: The normalized Levenshtein similarity score between the two titles.
     """
 
-    alma_title = get_alma_title(alma_record)
+    alma_title = get_alma_title(alma_record)[0]
     fm_title = get_filemaker_title(fm_record)
     if not alma_title or not fm_title:
         return 0
