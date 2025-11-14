@@ -39,6 +39,12 @@ def _get_arguments() -> argparse.Namespace:
         required=False,
         help="Path to the output directory where JSON files will be saved. Defaults to 'output/'.",
     )
+    parser.add_argument(
+        "--split_dpx_audio",
+        action="store_true",
+        required=False,
+        help="If specified, split output JSON into DPX, DPX Audio, and Non-DPX files.",
+    )
     return parser.parse_args()
 
 
@@ -123,14 +129,14 @@ def _process_input_data(
     alma_sru_client: AlmaSRUClient,
     filemaker_client: FilemakerClient,
     digital_data_client: DigitalDataClient,
-) -> tuple[list[dict], int, int]:
+) -> list[dict]:
     """Process input data and return a list of metadata records, plus counts of assets and tracks.
 
     :param input_data: The input data to process.
     :param alma_sru_client: The AlmaSRUClient instance to use to get the bib record.
     :param filemaker_client: The FilemakerClient instance to use to get the FM record.
     :param digital_data_client: The DigitalDataClient instance to use to get the DD record.
-    :return: A tuple of the list of metadata records, the count of assets, and the count of tracks.
+    :return: A list of metadata records.
     """
     metadata_records = []
     asset_count = 0
@@ -185,7 +191,131 @@ def _process_input_data(
             asset_count += 1
 
         metadata_records.append(metadata_record)
-    return metadata_records, asset_count, track_count
+    return metadata_records
+
+
+def _check_match_asset(record_with_match: dict, matched_record: dict) -> dict:
+    """Check if the match_asset relationship is valid between two records.
+
+    :param record_with_match: The record that has a match_asset field.
+    :param matched_record: The record that is being matched against.
+    :return: True if the match_asset relationship is valid, False otherwise.
+    """
+    asset_inv_list = matched_record.get("inventory_numbers") or []
+    asset_inv = asset_inv_list[0] if len(asset_inv_list) > 0 else None
+    track_inv_list = record_with_match.get("inventory_numbers") or []
+    track_inv = track_inv_list[0] if len(track_inv_list) > 0 else None
+
+    if asset_inv == track_inv:
+        # This is a track
+        record_with_match["record_type"] = "track"
+        logger.info(
+            f"Valid match_asset relationship found for inventory number '{asset_inv}'."
+        )
+        return record_with_match
+
+    elif not asset_inv or not track_inv:
+        # One or both inventory numbers are missing
+        # Treat as individual assets
+        logger.info(
+            f"One or both inventory numbers are missing (asset_inv='{asset_inv}', "
+            f"track_inv='{track_inv}'). Treated as individual assets."
+        )
+        record_with_match.pop("match_asset", None)
+        record_with_match["record_type"] = "asset"
+        return record_with_match
+
+    else:
+        # Inventory numbers do not match
+        # Treat as individual assets
+        logger.info(
+            f"Inventory numbers do not match (asset_inv='{asset_inv}', "
+            f"track_inv='{track_inv}'). Treated as individual assets."
+        )
+        record_with_match.pop("match_asset", None)
+        record_with_match["record_type"] = "asset"
+        return record_with_match
+
+
+def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
+    """Split metadata records into DPX, DPX Audio, and Non-DPX categories."""
+    dpx_records = []
+    dpx_audio_records = []
+    non_dpx_records = []
+
+    # Index DPX assets by inventory number for matching
+    dpx_index = {}
+
+    for record in metadata_records:
+        filename_raw = record.get("file_name")
+        filename = filename_raw or ""
+        # Normalize to uppercase for case-insensitive matching
+        filename_upper = filename.upper()
+        inv_list = record.get("inventory_numbers") or []
+        inventory_number = inv_list[0] if len(inv_list) > 0 else None
+
+        if "DPX_RAW" in filename_upper or "RAW_DPX" in filename_upper:
+            category = "DPX"
+            dpx_records.append(record)
+            if inventory_number:
+                dpx_index[inventory_number] = record
+        elif "AUDIORAW" in filename_upper or "AUDIO_RAW" in filename_upper:
+            category = "DPX Audio"
+            dpx_audio_records.append(record)
+        else:
+            category = "Non-DPX"
+            non_dpx_records.append(record)
+
+        logger.info(
+            f"Assigned file to {category} JSON file. Filename: '{filename}', "
+            f"Inventory Numbers: {inv_list}"
+        )
+
+    # Validate match_asset relationships for any records with a match_asset field
+    for record in dpx_audio_records + non_dpx_records:
+        match_asset_uuid = record.get("match_asset")
+        if match_asset_uuid:
+            # Find the matched record in the DPX records by UUID
+            matched_record = next(
+                (
+                    r
+                    for r in dpx_records + non_dpx_records
+                    if r.get("uuid") == match_asset_uuid
+                ),
+                None,
+            )
+            if matched_record:
+                # Check if the match_asset relationship is valid, and update the record accordingly
+                updated_record = _check_match_asset(record, matched_record)
+
+                # Update the record in the appropriate list
+                if updated_record["record_type"] == "track":
+                    if record in dpx_audio_records:
+                        dpx_audio_records[dpx_audio_records.index(record)] = (
+                            updated_record
+                        )
+                    else:
+                        non_dpx_records[non_dpx_records.index(record)] = updated_record
+
+    return {
+        "DPX": dpx_records,
+        "DPX Audio": dpx_audio_records,
+        "Non-DPX": non_dpx_records,
+    }
+
+
+def _count_assets_and_tracks(metadata_records: list[dict]) -> tuple[int, int]:
+    """Count the number of assets and tracks in the metadata records.
+
+    :param metadata_records: List of metadata records.
+    :return: A tuple containing the count of assets and tracks."""
+    asset_count = sum(
+        1 for record in metadata_records if record.get("record_type") == "asset"
+    )
+    track_count = sum(
+        1 for record in metadata_records if record.get("record_type") == "track"
+    )
+    return asset_count, track_count
 
 
 def main() -> None:
@@ -199,25 +329,31 @@ def main() -> None:
 
     alma_sru_client, filemaker_client, digital_data_client = _initialize_clients(config)
 
-    metadata_records, asset_count, track_count = _process_input_data(
+    metadata_records = _process_input_data(
         input_data, alma_sru_client, filemaker_client, digital_data_client
     )
 
-    # Prepare output dict with wrapped metadata records.
-    output_dict = {
-        "media": {
-            "assets": metadata_records,
-        }
-    }
-
     # Save processed data to JSON file named after the input file.
     output_filename_stem = Path(args.input_file).stem
-    _write_output_file(
-        Path(args.output_dir, f"{output_filename_stem}.json"), output_dict
-    )
+    if args.split_dpx_audio:
+        logger.info("Splitting output JSON into DPX, DPX Audio, and Non-DPX files.")
+        split_data = _split_dpx_records(metadata_records)
+        for key, records in split_data.items():
+            output_dict = {"media": {"assets": records}}
+            filename = f"{output_filename_stem}_{key.replace(' ', '_')}.json"
+            _write_output_file(Path(args.output_dir, filename), output_dict)
+        logger.info(f"DPX split JSON files saved to '{args.output_dir}'")
+    else:
+        output_dict = {"media": {"assets": metadata_records}}
+        _write_output_file(
+            Path(args.output_dir, f"{output_filename_stem}.json"), output_dict
+        )
+        logger.info(f"Output JSON file saved to '{args.output_dir}'")
 
-    logger.info(f"Processed {track_count} tracks and {asset_count} assets.")
-    logger.info(f"Processed data saved to '{args.output_dir}'")
+    asset_count, track_count = _count_assets_and_tracks(metadata_records)
+    logger.info(
+        f"Processing complete. {asset_count} assets and {track_count} tracks processed."
+    )
 
 
 if __name__ == "__main__":
