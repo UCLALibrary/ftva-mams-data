@@ -66,22 +66,22 @@ def _get_file_paths(file_lists: list[str]) -> list[str]:
 
 
 def _write_report(
-    in_file_list_not_in_metadata: set,
-    in_metadata_not_in_file_list: set,
+    in_file_list_not_in_metadata: list[str],
+    in_metadata_not_in_file_list: list[str],
     output_file: str,
 ) -> None:
     """Write a report of filename mismatches to an XLSX file,
     with each set of file names in a separate sheet.
 
-    :param in_file_list_not_in_metadata: Set of file names in file lists, but not in metadata.
-    :param in_metadata_not_in_file_list: Set of file names in metadata, but not in file lists.
+    :param in_file_list_not_in_metadata: List of file names in file lists, but not in metadata.
+    :param in_metadata_not_in_file_list: List of file names in metadata, but not in file lists.
     :param output_file: Path to the output file.
     """
     output_path = Path("output").joinpath(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)  # Make `output/` dir, if none
 
-    series_1 = pd.Series(list(in_file_list_not_in_metadata), name="filenames")
-    series_2 = pd.Series(list(in_metadata_not_in_file_list), name="filenames")
+    series_1 = pd.Series(in_file_list_not_in_metadata, name="filenames")
+    series_2 = pd.Series(in_metadata_not_in_file_list, name="filenames")
     with pd.ExcelWriter(output_path) as writer:
         series_1.to_excel(writer, sheet_name="file_lists_not_metadata", index=False)
         series_2.to_excel(writer, sheet_name="metadata_not_file_lists", index=False)
@@ -103,18 +103,22 @@ def main():
     ]
     file_names_in_metadata = [
         # Replace empty file names with "NO FILE NAME"
-        asset["file_name"] if asset["file_name"] != "" else "NO FILE NAME"
+        (
+            asset["file_name"]
+            if asset["file_name"] != ""
+            else f"NO FILE NAME ({asset['uuid']})"
+        )
         for asset in metadata_assets
     ]
 
-    # Set A - in the file lists, but not the metadata
-    file_names_in_file_lists_not_in_metadata = set(file_names_in_file_lists) - set(
-        file_names_in_metadata
+    # Set A - in the file lists, but not the metadata, sorted alphabetically
+    file_names_in_file_lists_not_in_metadata = sorted(
+        set(file_names_in_file_lists) - set(file_names_in_metadata)
     )
 
-    # Set B - in the metadata, but not the file lists
-    file_names_in_metadata_not_in_file_lists = set(file_names_in_metadata) - set(
-        file_names_in_file_lists
+    # Set B - in the metadata, but not the file lists, sorted alphabetically
+    file_names_in_metadata_not_in_file_lists = sorted(
+        set(file_names_in_metadata) - set(file_names_in_file_lists)
     )
 
     _write_report(
