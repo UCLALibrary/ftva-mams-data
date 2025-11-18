@@ -180,16 +180,21 @@ def _process_input_data(
             bib_record, filemaker_record, digital_data_record, match_asset_uuid
         )
 
+        # Add temporary field for file_type to be used later for DPX splitting
+        metadata_record["file_type"] = digital_data_record.get("file_type", "")
+
         metadata_records.append(metadata_record)
     return metadata_records
 
 
-def _check_match_asset(record_with_match: dict, matched_record: dict) -> dict:
-    """Check if the match_asset relationship is valid between two records.
+def _update_match_record_type(record_with_match: dict, matched_record: dict) -> dict:
+    """Check if the match_asset relationship is valid between two records. If valid,
+    set record_type to 'track' on the record_with_match. If not valid, set record_type
+    to 'asset'.
 
     :param record_with_match: The record that has a match_asset field.
     :param matched_record: The record that is being matched against.
-    :return: True if the match_asset relationship is valid, False otherwise.
+    :return: The updated record_with_match dict with record_type set to 'track' or 'asset'.
     """
     asset_inv_list = matched_record.get("inventory_numbers") or []
     asset_inv = asset_inv_list[0] if len(asset_inv_list) > 0 else None
@@ -211,7 +216,6 @@ def _check_match_asset(record_with_match: dict, matched_record: dict) -> dict:
             f"One or both inventory numbers are missing (asset_inv='{asset_inv}', "
             f"track_inv='{track_inv}'). Treated as individual assets."
         )
-        record_with_match.pop("match_asset", None)
         record_with_match["record_type"] = "asset"
         return record_with_match
 
@@ -222,7 +226,6 @@ def _check_match_asset(record_with_match: dict, matched_record: dict) -> dict:
             f"Inventory numbers do not match (asset_inv='{asset_inv}', "
             f"track_inv='{track_inv}'). Treated as individual assets."
         )
-        record_with_match.pop("match_asset", None)
         record_with_match["record_type"] = "asset"
         return record_with_match
 
@@ -237,59 +240,86 @@ def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
     dpx_audio_records = []
     non_dpx_records = []
 
-    # Index DPX assets by inventory number for matching
-    dpx_index = {}
-
+    # Define audio file types for DPX Audio category
+    audio_file_types = [
+        "WAV",
+        "BWF",
+        "AIFF",
+        "MP3",
+        "AVI",
+        "RM",
+        "RMVB",
+        "AMV",
+        "ASF",
+        "3GPP",
+        "3GGP2",
+    ]
+    # Process each record and categorize
+    # We will do two passes: first for DPX assets, then all others.
+    # This ensures that when processing DPX Audio records, we have already
+    # collected all DPX assets to check for valid match_asset relationships.
+    unassigned_records = metadata_records.copy()
     for record in metadata_records:
-        filename = record.get("file_name", "")
-        # Normalize to uppercase for case-insensitive matching
-        filename_upper = filename.upper()
         inv_list = record.get("inventory_numbers") or []
         inventory_number = inv_list[0] if len(inv_list) > 0 else None
-
-        if "DPX_RAW" in filename_upper or "RAW_DPX" in filename_upper:
-            category = "DPX"
-            dpx_records.append(record)
-            if inventory_number:
-                dpx_index[inventory_number] = record
-        elif "AUDIORAW" in filename_upper or "AUDIO_RAW" in filename_upper:
-            category = "DPX Audio"
-            dpx_audio_records.append(record)
-        else:
-            category = "Non-DPX"
-            non_dpx_records.append(record)
-
-        logger.info(
-            f"Assigned file to {category} JSON file. Filename: '{filename}', "
-            f"Inventory Numbers: {inv_list}"
-        )
-
-    # Validate match_asset relationships for any records with a match_asset field
-    for record in dpx_audio_records + non_dpx_records:
-        match_asset_uuid = record.get("match_asset")
-        if match_asset_uuid:
-            # Find the matched record in the DPX records by UUID
-            matched_record = next(
-                (
-                    r
-                    for r in dpx_records + non_dpx_records
-                    if r.get("uuid") == match_asset_uuid
-                ),
-                None,
+        # Categorize records
+        # DPX: file_type = 'DPX', media_type = 'video', asset_type = 'Raw' or 'Intermediate'
+        if (
+            record.get("file_type", "").upper() == "DPX"
+            and record.get("media_type", "").lower() == "video"
+            and record.get("asset_type", "").lower() in ["raw", "intermediate"]
+        ):
+            logging.info(
+                f"DPX record found: Inventory Number '{inventory_number}',"
+                f" UUID '{record.get('uuid')}'. Adding to DPX JSON."
             )
-            if matched_record:
-                # Check if the match_asset relationship is valid, and update the record accordingly
-                updated_record = _check_match_asset(record, matched_record)
+            record["record_type"] = "asset"
+            dpx_records.append(record)
+            unassigned_records.remove(record)
 
-                # Update the record in the appropriate list
-                if updated_record["record_type"] == "track":
-                    if record in dpx_audio_records:
-                        dpx_audio_records[dpx_audio_records.index(record)] = (
-                            updated_record
-                        )
-                    else:
-                        non_dpx_records[non_dpx_records.index(record)] = updated_record
+    # Second pass for DPX Audio and Non-DPX
+    for record in unassigned_records:
+        inv_list = record.get("inventory_numbers") or []
+        inventory_number = inv_list[0] if len(inv_list) > 0 else None
+        # DPX Audio: file_type in list above, media_type = 'audio', asset_type = 'Raw'
+        if (
+            record.get("file_type", "").upper() in audio_file_types
+            and record.get("media_type", "").lower() == "audio"
+            and record.get("asset_type", "").lower() == "raw"
+        ):
+            logging.info(
+                f"DPX Audio candidate found: Inventory Number '{inventory_number},"
+                f" UUID '{record.get('uuid')}'. Checking match_asset relationship."
+            )
+            # Check for valid match_asset relationship
+            if "match_asset" in record:
+                matched_asset_uuid = record["match_asset"]
+                matched_asset = next(
+                    (r for r in dpx_records if r.get("uuid") == matched_asset_uuid),
+                    None,
+                )
+                if matched_asset:
+                    record = _update_match_record_type(record, matched_asset)
+                if record.get("record_type") == "track":
+                    logging.info(
+                        f"Record with Inventory Number '{inventory_number}' "
+                        "is a valid DPX Audio track. Adding to DPX Audio JSON."
+                    )
+                    dpx_audio_records.append(record)
+                    continue  # Move to next record if it's a valid track
+                elif record.get("record_type") == "asset":
+                    # Treated as individual asset
+                    non_dpx_records.append(record)
+                    continue  # Move to next record if treated as individual asset
 
+        # Non-DPX: all other records
+        else:
+            logging.info(
+                f"Non-DPX record found: Inventory Number '{inventory_number},'"
+                f" UUID '{record.get('uuid')}'. Adding to Non-DPX JSON."
+            )
+            record["record_type"] = "asset"
+            non_dpx_records.append(record)
     return {
         "DPX": dpx_records,
         "DPX Audio": dpx_audio_records,
@@ -332,11 +362,17 @@ def main() -> None:
         logger.info("Splitting output JSON into DPX, DPX Audio, and Non-DPX files.")
         split_data = _split_dpx_records(metadata_records)
         for key, records in split_data.items():
+            # Remove temporary 'file_type' field before output
+            for record in records:
+                record.pop("file_type", None)
             output_dict = {"media": {"assets": records}}
             filename = f"{output_filename_stem}_{key.replace(' ', '_')}.json"
             _write_output_file(Path(args.output_dir, filename), output_dict)
         logger.info(f"DPX split JSON files saved to '{args.output_dir}'")
     else:
+        # Remove temporary 'file_type' field before output
+        for record in metadata_records:
+            record.pop("file_type", None)
         output_dict = {"media": {"assets": metadata_records}}
         _write_output_file(
             Path(args.output_dir, f"{output_filename_stem}.json"), output_dict
