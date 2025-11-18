@@ -139,8 +139,7 @@ def _process_input_data(
     :return: A list of metadata records.
     """
     metadata_records = []
-    asset_count = 0
-    track_count = 0
+
     for row in input_data:
         # Adding `try/except` block to prevent the program from crashing if a record
         # is not found. This would happen if the dev and prod databases are out of sync.
@@ -180,15 +179,6 @@ def _process_input_data(
         metadata_record = get_mams_metadata(
             bib_record, filemaker_record, digital_data_record, match_asset_uuid
         )
-
-        # If metadata_record has `match_asset` value, it's a track;
-        # set `record_type` accordingly.
-        if metadata_record.get("match_asset"):
-            metadata_record["record_type"] = "track"
-            track_count += 1
-        else:
-            metadata_record["record_type"] = "asset"
-            asset_count += 1
 
         metadata_records.append(metadata_record)
     return metadata_records
@@ -238,7 +228,11 @@ def _check_match_asset(record_with_match: dict, matched_record: dict) -> dict:
 
 
 def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
-    """Split metadata records into DPX, DPX Audio, and Non-DPX categories."""
+    """Split metadata records into DPX, DPX Audio, and Non-DPX categories.
+
+    :param metadata_records: List of metadata records.
+    :return: A dictionary with keys 'DPX', 'DPX Audio', and 'Non-DPX', each containing
+    a list of corresponding metadata records."""
     dpx_records = []
     dpx_audio_records = []
     non_dpx_records = []
@@ -247,8 +241,7 @@ def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
     dpx_index = {}
 
     for record in metadata_records:
-        filename_raw = record.get("file_name")
-        filename = filename_raw or ""
+        filename = record.get("file_name", "")
         # Normalize to uppercase for case-insensitive matching
         filename_upper = filename.upper()
         inv_list = record.get("inventory_numbers") or []
