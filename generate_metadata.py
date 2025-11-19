@@ -269,7 +269,7 @@ def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
             and record.get("media_type", "").lower() == "video"
             and record.get("asset_type", "").lower() in ["raw", "intermediate"]
         ):
-            logging.info(
+            logger.info(
                 f"DPX record found: Inventory Number '{inventory_number}',"
                 f" UUID '{record.get('uuid')}'. Adding to DPX JSON."
             )
@@ -287,7 +287,7 @@ def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
             and record.get("media_type", "").lower() == "audio"
             and record.get("asset_type", "").lower() == "raw"
         ):
-            logging.info(
+            logger.info(
                 f"DPX Audio candidate found: Inventory Number '{inventory_number},"
                 f" UUID '{record.get('uuid')}'. Checking match_asset relationship."
             )
@@ -301,7 +301,7 @@ def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
                 if matched_asset:
                     record = _update_match_record_type(record, matched_asset)
                 if record.get("record_type") == "track":
-                    logging.info(
+                    logger.info(
                         f"Record with Inventory Number '{inventory_number}' "
                         "is a valid DPX Audio track. Adding to DPX Audio JSON."
                     )
@@ -314,7 +314,7 @@ def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
 
         # Non-DPX: all other records
         else:
-            logging.info(
+            logger.info(
                 f"Non-DPX record found: Inventory Number '{inventory_number},'"
                 f" UUID '{record.get('uuid')}'. Adding to Non-DPX JSON."
             )
