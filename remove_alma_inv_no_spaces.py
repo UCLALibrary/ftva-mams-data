@@ -127,45 +127,7 @@ def main():
         f"Starting FTVA inventory Permanent Call Number update process in {args.environment}."
     )
 
-    if args.environment == "sandbox":
-        logging.info("Sandbox environment selected; test data will be used.")
-        logging.info(
-            "Test data contains five records from sandbox Alma, three of which require an update."
-        )
-        alma_data = [
-            # Record that requires update
-            {
-                "MMS Id": "99688013506533",
-                "Holdings ID": "22541990160006533",
-                "Permanent Call Number": "FE1605 T",
-            },
-            # 2nd record that requires update
-            {
-                "MMS Id": "99439703506533",
-                "Holdings ID": "22541990530006533",
-                "Permanent Call Number": "VA19633 M",
-            },
-            # 3rd record that requires update
-            {
-                "MMS Id": "99548133506533",
-                "Holdings ID": "22547024400006533",
-                "Permanent Call Number": "XFE1014 M",
-            },
-            # Record that does not require update (no space)
-            {
-                "MMS Id": "9976843506533",
-                "Holdings ID": "22541990130006533",
-                "Permanent Call Number": "M28479",
-            },
-            # Record that does not require update (contains hyphen)
-            {
-                "MMS Id": "99203173506533",
-                "Holdings ID": "22542000310006533",
-                "Permanent Call Number": "VA11724 -725 T",
-            },
-        ]
-    else:  # production
-        alma_data = _read_alma_data(args.alma_data_file)
+    alma_data = _read_alma_data(args.alma_data_file)
 
     inventory_nos_to_update = get_inventory_nos_to_update(alma_data)
     logging.info(f"Found {len(inventory_nos_to_update)} inventory records to update.")
