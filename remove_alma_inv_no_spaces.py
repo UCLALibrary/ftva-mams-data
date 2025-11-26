@@ -70,35 +70,6 @@ def _configure_logging():
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
-def get_inventory_nos_to_update(alma_data: list[dict]) -> list[dict]:
-    """Extracts inventory numbers with Permanent Call Numbers that:
-        - contain a space character in the second-to-last position
-        - have last character "T", "M", or "R"
-        - do not contain a hyphen or the word "and"
-    These Permanent Call Numbers will be updated by removing the space character.
-
-    :param alma_data: List of dictionaries containing Alma data with Permanent Call Numbers.
-    :return: List of dictionaries of alma_data records, with new `new_permanent_call_number`
-            field added for each record to be updated.
-    """
-    inventory_nos_to_update = []
-    for record in alma_data:
-        permanent_call_number = record.get("Permanent Call Number", "")
-        if len(permanent_call_number) < 2:
-            continue
-        if (
-            permanent_call_number[-2] == " "
-            and permanent_call_number[-1] in {"T", "M", "R"}
-            and "-" not in permanent_call_number
-            and "and" not in permanent_call_number.lower()
-        ):
-            record["new_permanent_call_number"] = (
-                permanent_call_number[:-2] + permanent_call_number[-1]
-            )
-            inventory_nos_to_update.append(record)
-    return inventory_nos_to_update
-
-
 def _read_alma_data(alma_data_file: str) -> list[dict]:
     """Reads Alma data from a CSV file.
 
@@ -111,8 +82,31 @@ def _read_alma_data(alma_data_file: str) -> list[dict]:
     return alma_data
 
 
+def get_updated_call_number(call_number: str) -> str:
+    """Returns an updated 852 $h value. Call numbers needing updates meet the following criteria:
+        - space character in the second-to-last position
+        - last character "T", "M", or "R"
+        - no hyphen or the word "and"
+
+    If the call number meets these criteria, the space is removed.
+    If the call number does not meet these criteria, it is returned unchanged.
+
+    :param call_number: Original inventory number (852 $h)
+    :return: Updated inventory number with space removed, or the original if no update needed.
+    """
+
+    if (
+        len(call_number) >= 2
+        and call_number[-2] == " "
+        and call_number[-1] in {"T", "M", "R"}
+        and "-" not in call_number
+        and "and" not in call_number.lower()
+    ):
+        return call_number[:-2] + call_number[-1]
+    return call_number
+
+
 def main():
-    """Main function to remove FTVA inventory without spaces in Permanent Call Numbers."""
     args = _get_arguments()
     config = _get_config(args.config_file)
     _configure_logging()
@@ -124,23 +118,23 @@ def main():
 
     alma_client = AlmaAPIClient(api_key=alma_api_key)
     logging.info(
-        f"Starting FTVA inventory Permanent Call Number update process in {args.environment}."
+        f"Starting FTVA inventory number update process in {args.environment}."
     )
 
     alma_data = _read_alma_data(args.alma_data_file)
 
-    inventory_nos_to_update = get_inventory_nos_to_update(alma_data)
-    logging.info(f"Found {len(inventory_nos_to_update)} inventory records to update.")
+    logging.info(f"Found {len(alma_data)} records to check for updates.")
 
-    for record in inventory_nos_to_update:
+    # Itnitialize counter for updated records
+    updated_record_count = 0
+
+    for record in alma_data:
         mms_id = record["MMS Id"]
         holding_id = record["Holdings ID"]
-        new_permanent_call_number = record["new_permanent_call_number"]
 
         try:
             holding_record = alma_client.get_holding_record(mms_id, holding_id)
             marc_record = holding_record.marc_record
-            # Update the Permanent Call Number (FTVA) subfield (852 $h)
 
             if marc_record is None:
                 logging.warning(
@@ -155,16 +149,25 @@ def main():
                 )
                 continue
 
-            for field_852 in fields_852:
-                subfield_h = field_852.get_subfields("h")
-                if subfield_h:
-                    field_852.delete_subfield("h")
-                    field_852.add_subfield("h", new_permanent_call_number)
-                    logging.info(
-                        f"Update identified for MMS ID {mms_id}, holding {holding_id}: "
-                        f"Permanent Call Number change from {record['Permanent Call Number']} "
-                        f"to {new_permanent_call_number}."
-                    )
+            # Get the current 852 $h value (not repeatable, so take the first one)
+            current_inv_no = fields_852[0].get_subfields("h")[0]
+            new_inv_no = get_updated_call_number(current_inv_no)
+            if new_inv_no == current_inv_no:
+                logging.info(
+                    f"No update needed for MMS ID {mms_id}, holding {holding_id}"
+                    f" ('{current_inv_no}'); skipping"
+                )
+                continue
+
+            # Update the 852 $h value
+            fields_852[0].delete_subfield("h")
+            fields_852[0].add_subfield("h", new_inv_no)
+            logging.info(
+                f"Updated MMS ID {mms_id}, holding {holding_id}: "
+                f"'{current_inv_no}' -> '{new_inv_no}'"
+            )
+            updated_record_count += 1
+
             if args.dry_run:
                 logging.info(
                     f"Dry run enabled; not updating MMS ID {mms_id}, holding {holding_id} in Alma."
@@ -184,7 +187,9 @@ def main():
                 f"API error while processing MMS ID {mms_id}, holding {holding_id}: {e}"
             )
 
-    logging.info("FTVA inventory number update process completed.")
+    logging.info(
+        f"FTVA inventory number update process completed. Updated {updated_record_count} records."
+    )
 
 
 if __name__ == "__main__":
