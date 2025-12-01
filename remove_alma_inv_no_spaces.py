@@ -5,6 +5,7 @@ import tomllib
 from alma_api_client import AlmaAPIClient, APIError
 from datetime import datetime
 from pathlib import Path
+from pymarc import Field
 
 
 def _get_arguments() -> argparse.Namespace:
@@ -82,6 +83,26 @@ def _read_alma_data(alma_data_file: str) -> list[dict]:
     return alma_data
 
 
+def get_subfield_position(field: Field, subfield_code: str) -> int | None:
+    """Return 0-based position of the first subfield with the given code,
+    or None if not found.
+
+    :param field: The Pymarc Field to search.
+    :param subfield_code: The subfield code to search for.
+    :return: The 0-based position of the first subfield with the given code,
+        or None if not found.
+    """
+    found = False
+    pos = -1
+
+    for subfield in field:
+        pos += 1
+        if subfield.code == subfield_code:
+            found = True
+            break
+    return pos if found else None
+
+
 def get_updated_call_number(call_number: str) -> str:
     """Returns an updated 852 $h value. Call numbers needing updates meet the following criteria:
         - space character in the second-to-last position
@@ -150,7 +171,13 @@ def main():
                 continue
 
             # Get the current 852 $h value (not repeatable, so take the first one)
-            current_inv_no = fields_852[0].get_subfields("h")[0]
+            try:
+                current_inv_no = fields_852[0].get_subfields("h")[0]
+            except IndexError:
+                logging.info(
+                    f"No 852 $h subfield found for MMS ID {mms_id}, holding {holding_id}; skipping"
+                )
+                continue
             new_inv_no = get_updated_call_number(current_inv_no)
             if new_inv_no == current_inv_no:
                 logging.info(
@@ -160,18 +187,19 @@ def main():
                 continue
 
             # Update the 852 $h value
+            h_pos = get_subfield_position(fields_852[0], "h")
             fields_852[0].delete_subfield("h")
-            fields_852[0].add_subfield("h", new_inv_no)
+            fields_852[0].add_subfield("h", new_inv_no, pos=h_pos)
             logging.info(
                 f"Updated MMS ID {mms_id}, holding {holding_id}: "
                 f"'{current_inv_no}' -> '{new_inv_no}'"
             )
-            updated_record_count += 1
 
             if args.dry_run:
                 logging.info(
                     f"Dry run enabled; not updating MMS ID {mms_id}, holding {holding_id} in Alma."
                 )
+                updated_record_count += 1
                 continue
 
             # Update the MARC record of the original HoldingRecord object
@@ -181,6 +209,7 @@ def main():
             logging.info(
                 f"Successfully updated MMS ID {mms_id}, holding {holding_id} in Alma."
             )
+            updated_record_count += 1
 
         except APIError as e:
             logging.error(
