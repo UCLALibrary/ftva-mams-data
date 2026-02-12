@@ -13,6 +13,7 @@ from ftva_etl import (
 )
 from ftva_etl.metadata.utils import filter_by_inventory_number_and_library
 from requests.exceptions import HTTPError
+from warnings import deprecated
 
 
 def _get_arguments() -> argparse.Namespace:
@@ -44,6 +45,7 @@ def _get_arguments() -> argparse.Namespace:
         action="store_true",
         required=False,
         help="If specified, split output JSON into DPX, DPX Audio, and Non-DPX files.",
+        deprecated=True,
     )
     return parser.parse_args()
 
@@ -230,6 +232,34 @@ def _update_match_record_type(record_with_match: dict, matched_record: dict) -> 
         return record_with_match
 
 
+def _set_record_type(metadata_records: list[dict]) -> list[dict]:
+    """Set the `record_type` for each metadata record based on its `match_asset` value.
+
+    :param metadata_records: List of metadata records.
+    :return: List of metadata records with `record_type` set.
+    """
+    for record in metadata_records:
+        # If the record has a match_asset value,
+        # validate the relationship and update `record_type` as indicated
+        if record.get("match_asset"):
+            matched_record = next(
+                (r for r in metadata_records if r.get("uuid") == record["match_asset"]),
+                None,
+            )
+            if not matched_record:
+                logger.error(
+                    f"Match asset {record['match_asset']} "
+                    f"for record {record['uuid']} not found in metadata records."
+                )
+                continue
+            record = _update_match_record_type(record, matched_record)
+        # Else default to 'asset'
+        else:
+            record["record_type"] = "asset"
+    return metadata_records
+
+
+@deprecated("Metadata records no longer need to be split into separate JSON outputs.")
 def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
     """Split metadata records into DPX, DPX Audio, and Non-DPX categories.
 
@@ -370,6 +400,8 @@ def main() -> None:
             _write_output_file(Path(args.output_dir, filename), output_dict)
         logger.info(f"DPX split JSON files saved to '{args.output_dir}'")
     else:
+        # Set `record_type` on metadata records
+        metadata_records = _set_record_type(metadata_records)
         # Remove temporary 'file_type' field before output
         for record in metadata_records:
             record.pop("file_type", None)
