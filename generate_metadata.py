@@ -16,6 +16,35 @@ from requests.exceptions import HTTPError
 from warnings import deprecated
 
 
+def _get_logger(name: str | None = None) -> logging.Logger:
+    """Returns a logger for the current application.
+    A unique log filename is created using the current time, and log messages
+    will use the name in the 'logger' field.
+
+    :param name: Optional name for the logger. If not provided, uses the base filename
+    of the current script.
+    :return: Configured logger instance."""
+
+    if not name:
+        # Use base filename of current script.
+        name = Path(__file__).stem
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logging_file = Path("logs", f"{name}_{timestamp}.log")  # Log to `logs/` dir
+    logging_file.parent.mkdir(parents=True, exist_ok=True)  # Make `logs/` dir, if none
+    logger = logging.getLogger(name)
+    logging.basicConfig(
+        filename=logging_file,
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s: %(message)s",
+    )
+    return logger
+
+
+# Make logger available at module level.
+# Otherwise, it's not available when running tests.
+logger = _get_logger()
+
+
 def _get_arguments() -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -59,30 +88,6 @@ def _get_config(config_file_name: str) -> dict:
     with open(config_file_name, "rb") as f:
         config = tomllib.load(f)
     return config
-
-
-def _get_logger(name: str | None = None) -> logging.Logger:
-    """Returns a logger for the current application.
-    A unique log filename is created using the current time, and log messages
-    will use the name in the 'logger' field.
-
-    :param name: Optional name for the logger. If not provided, uses the base filename
-    of the current script.
-    :return: Configured logger instance."""
-
-    if not name:
-        # Use base filename of current script.
-        name = Path(__file__).stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logging_file = Path("logs", f"{name}_{timestamp}.log")  # Log to `logs/` dir
-    logging_file.parent.mkdir(parents=True, exist_ok=True)  # Make `logs/` dir, if none
-    logger = logging.getLogger(name)
-    logging.basicConfig(
-        filename=logging_file,
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s: %(message)s",
-    )
-    return logger
 
 
 def _read_input_file(file_path: str) -> list[dict]:
@@ -418,7 +423,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # Make logger available at module level.
-    # Otherwise, it's not available when running tests.
-    logger = _get_logger()
     main()
