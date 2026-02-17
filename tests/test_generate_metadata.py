@@ -1,10 +1,37 @@
 import unittest
+import io
+import logging
 
-from generate_metadata import _set_record_type, _update_match_record_type
+from generate_metadata import (
+    _set_record_type,
+    _update_match_record_type,
+    logger,
+)
 
 
 class TestGenerateMetadata(unittest.TestCase):
     """Test the `generate_metadata` module."""
+
+    def setUp(self):
+        # Use a stream handler for tests to avoid file and console logging
+        for handler in logger.handlers:
+            handler.close()
+            logger.removeHandler(handler)
+
+        stream = io.StringIO()
+        test_handler = logging.StreamHandler(stream)
+        formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
+        test_handler.setFormatter(formatter)
+        logger.addHandler(test_handler)
+
+        self.logger = logger
+        self.stream = stream
+
+    def tearDown(self):
+        # Clean up test logging handler
+        for handler in self.logger.handlers:
+            handler.close()
+            self.logger.removeHandler(handler)
 
     def test_set_record_type_with_match_asset(self):
         """Test that `_set_record_type` sets the `record_type` correctly
@@ -89,7 +116,7 @@ class TestGenerateMetadata(unittest.TestCase):
 
     def test_set_record_type_when_match_asset_is_missing(self):
         """Test that `_set_record_type` skips records
-        when the `match_asset` cannot be found.
+        when the `match_asset` cannot be found and logs an error.
         """
         test_records = [
             {"uuid": "12345", "inventory_numbers": ["INV001"]},
@@ -112,6 +139,10 @@ class TestGenerateMetadata(unittest.TestCase):
 
         result_records = _set_record_type(test_records)
         self.assertEqual(result_records, expected_results)
+        self.assertIn(
+            "ERROR: Match asset 34567 for record 09876 not found in metadata records.",
+            self.stream.getvalue(),
+        )
 
     def test_update_match_record_type_with_valid_match_asset(self):
         """Test that `_update_match_record_type` updates the `record_type` correctly

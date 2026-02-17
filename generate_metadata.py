@@ -16,33 +16,35 @@ from requests.exceptions import HTTPError
 from warnings import deprecated
 
 
-def _get_logger(name: str | None = None) -> logging.Logger:
-    """Returns a logger for the current application.
-    A unique log filename is created using the current time, and log messages
-    will use the name in the 'logger' field.
+# Module-level logger used throughout this module.
+# Handlers are configured explicitly via `configure_logging`.
+logger = logging.getLogger(Path(__file__).stem)
 
-    :param name: Optional name for the logger. If not provided, uses the base filename
-    of the current script.
-    :return: Configured logger instance."""
 
-    if not name:
-        # Use base filename of current script.
-        name = Path(__file__).stem
+def configure_logging(console_logging: bool = True) -> None:
+    """Configure logging for this program.
+
+    By default, logs are written to a timestamped file in `logs/` and to the console.
+    Console logging can be disabled by passing `console_logging=False`.
+
+    :param console_logging: Whether to enable console (stdout) logging.
+    """
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logging_file = Path("logs", f"{name}_{timestamp}.log")  # Log to `logs/` dir
-    logging_file.parent.mkdir(parents=True, exist_ok=True)  # Make `logs/` dir, if none
-    logger = logging.getLogger(name)
-    logging.basicConfig(
-        filename=logging_file,
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s: %(message)s",
-    )
-    return logger
+    log_file = logs_dir / f"{logger.name}_{timestamp}.log"  # use logger name for file
 
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
 
-# Make logger available at module level.
-# Otherwise, it's not available when running tests.
-logger = _get_logger()
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    if console_logging:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
 
 def _get_arguments() -> argparse.Namespace:
@@ -75,6 +77,12 @@ def _get_arguments() -> argparse.Namespace:
         required=False,
         help="If specified, split output JSON into DPX, DPX Audio, and Non-DPX files.",
         deprecated=True,
+    )
+    parser.add_argument(
+        "--disable_console_logging",
+        action="store_true",
+        required=False,
+        help="Disable console logging.",
     )
     return parser.parse_args()
 
@@ -378,6 +386,7 @@ def _count_assets_and_tracks(metadata_records: list[dict]) -> tuple[int, int]:
 
 def main() -> None:
     args = _get_arguments()
+    configure_logging(console_logging=not args.disable_console_logging)
     config = _get_config(args.config_file)
 
     # Read input file
