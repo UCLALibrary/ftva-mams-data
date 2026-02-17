@@ -13,6 +13,38 @@ from ftva_etl import (
 )
 from ftva_etl.metadata.utils import filter_by_inventory_number_and_library
 from requests.exceptions import HTTPError
+from warnings import deprecated
+
+
+# Module-level logger used throughout this module.
+# Handlers are configured explicitly via `configure_logging`.
+logger = logging.getLogger(Path(__file__).stem)
+
+
+def configure_logging(console_logging: bool = True) -> None:
+    """Configure logging for this program.
+
+    By default, logs are written to a timestamped file in `logs/` and to the console.
+    Console logging can be disabled by passing `console_logging=False`.
+
+    :param console_logging: Whether to enable console (stdout) logging.
+    """
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = logs_dir / f"{logger.name}_{timestamp}.log"  # use logger name for file
+
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
+
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    if console_logging:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
 
 def _get_arguments() -> argparse.Namespace:
@@ -44,6 +76,13 @@ def _get_arguments() -> argparse.Namespace:
         action="store_true",
         required=False,
         help="If specified, split output JSON into DPX, DPX Audio, and Non-DPX files.",
+        deprecated=True,
+    )
+    parser.add_argument(
+        "--disable_console_logging",
+        action="store_true",
+        required=False,
+        help="Disable console logging.",
     )
     return parser.parse_args()
 
@@ -57,30 +96,6 @@ def _get_config(config_file_name: str) -> dict:
     with open(config_file_name, "rb") as f:
         config = tomllib.load(f)
     return config
-
-
-def _get_logger(name: str | None = None) -> logging.Logger:
-    """Returns a logger for the current application.
-    A unique log filename is created using the current time, and log messages
-    will use the name in the 'logger' field.
-
-    :param name: Optional name for the logger. If not provided, uses the base filename
-    of the current script.
-    :return: Configured logger instance."""
-
-    if not name:
-        # Use base filename of current script.
-        name = Path(__file__).stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logging_file = Path("logs", f"{name}_{timestamp}.log")  # Log to `logs/` dir
-    logging_file.parent.mkdir(parents=True, exist_ok=True)  # Make `logs/` dir, if none
-    logger = logging.getLogger(name)
-    logging.basicConfig(
-        filename=logging_file,
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s: %(message)s",
-    )
-    return logger
 
 
 def _read_input_file(file_path: str) -> list[dict]:
@@ -230,6 +245,34 @@ def _update_match_record_type(record_with_match: dict, matched_record: dict) -> 
         return record_with_match
 
 
+def _set_record_type(metadata_records: list[dict]) -> list[dict]:
+    """Set the `record_type` for each metadata record based on its `match_asset` value.
+
+    :param metadata_records: List of metadata records.
+    :return: List of metadata records with `record_type` set.
+    """
+    for record in metadata_records:
+        # If the record has a match_asset value,
+        # validate the relationship and update `record_type` as indicated
+        if record.get("match_asset"):
+            matched_record = next(
+                (r for r in metadata_records if r.get("uuid") == record["match_asset"]),
+                None,
+            )
+            if not matched_record:
+                logger.error(
+                    f"Match asset {record['match_asset']} "
+                    f"for record {record['uuid']} not found in metadata records."
+                )
+                continue
+            record = _update_match_record_type(record, matched_record)
+        # Else default to 'asset'
+        else:
+            record["record_type"] = "asset"
+    return metadata_records
+
+
+@deprecated("Metadata records no longer need to be split into separate JSON outputs.")
 def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
     """Split metadata records into DPX, DPX Audio, and Non-DPX categories.
 
@@ -343,6 +386,7 @@ def _count_assets_and_tracks(metadata_records: list[dict]) -> tuple[int, int]:
 
 def main() -> None:
     args = _get_arguments()
+    configure_logging(console_logging=not args.disable_console_logging)
     config = _get_config(args.config_file)
 
     # Read input file
@@ -370,6 +414,8 @@ def main() -> None:
             _write_output_file(Path(args.output_dir, filename), output_dict)
         logger.info(f"DPX split JSON files saved to '{args.output_dir}'")
     else:
+        # Set `record_type` on metadata records
+        metadata_records = _set_record_type(metadata_records)
         # Remove temporary 'file_type' field before output
         for record in metadata_records:
             record.pop("file_type", None)
@@ -386,7 +432,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # Make logger available at module level.
-    # Otherwise, it's not available when running tests.
-    logger = _get_logger()
     main()

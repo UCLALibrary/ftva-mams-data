@@ -1,8 +1,217 @@
 import unittest
+import io
+import logging
+
+from generate_metadata import (
+    _set_record_type,
+    _update_match_record_type,
+    logger,
+)
 
 
 class TestGenerateMetadata(unittest.TestCase):
     """Test the `generate_metadata` module."""
 
-    # TODO: Add tests, if necessary.
-    pass
+    def setUp(self):
+        # The logger used in these tests is imported from `generate_metadata.py`,
+        # so this setUp method clears existing file and console handlers,
+        # then sets up a new test handler that captures the messages emitted in `generate_metadata`
+        # to an IO stream, which can then be used in tests, without log files or console output.
+        for handler in logger.handlers:
+            handler.close()
+            logger.removeHandler(handler)
+
+        stream = io.StringIO()
+        test_handler = logging.StreamHandler(stream)
+        formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
+        test_handler.setFormatter(formatter)
+        logger.addHandler(test_handler)
+
+        self.logger = logger
+        self.stream = stream
+
+    def tearDown(self):
+        # Reset the test handler after each test, to avoid multiple streams being created.
+        for handler in self.logger.handlers:
+            handler.close()
+            self.logger.removeHandler(handler)
+
+    def test_set_record_type_with_match_asset(self):
+        """Test that `_set_record_type` sets the `record_type` correctly
+        when there is a `match_asset` relationship.
+        """
+        # Tuple of test records and expected results
+        test_records = [
+            {
+                "uuid": "12345",
+                "inventory_numbers": ["INV001"],
+            },  # should be asset
+            {
+                "uuid": "67890",
+                "inventory_numbers": ["INV002"],
+            },  # should be asset
+            {
+                "uuid": "09876",
+                "inventory_numbers": ["INV001"],
+                "match_asset": "12345",
+            },  # since inventory numbers match the target match_asset, should be track
+        ]
+        expected_results = [
+            {
+                "uuid": "12345",
+                "inventory_numbers": ["INV001"],
+                "record_type": "asset",
+            },
+            {
+                "uuid": "67890",
+                "inventory_numbers": ["INV002"],
+                "record_type": "asset",
+            },
+            {
+                "uuid": "09876",
+                "inventory_numbers": ["INV001"],
+                "match_asset": "12345",
+                "record_type": "track",
+            },
+        ]
+
+        result_records = _set_record_type(test_records)
+        self.assertEqual(result_records, expected_results)
+
+    def test_set_record_type_without_match_asset(self):
+        """Test that `_set_record_type` sets the `record_type` correctly
+        when there is no `match_asset` relationship.
+        """
+        test_records = [
+            {
+                "uuid": "12345",
+                "inventory_numbers": ["INV001"],
+            },  # should be asset
+            {
+                "uuid": "67890",
+                "inventory_numbers": ["INV002"],
+            },  # should be asset
+            {
+                "uuid": "09876",
+                "inventory_numbers": ["INV001"],
+            },  # since there is no match_asset relationship, should be asset
+        ]
+        expected_results = [
+            {
+                "uuid": "12345",
+                "inventory_numbers": ["INV001"],
+                "record_type": "asset",
+            },
+            {
+                "uuid": "67890",
+                "inventory_numbers": ["INV002"],
+                "record_type": "asset",
+            },
+            {
+                "uuid": "09876",
+                "inventory_numbers": ["INV001"],
+                "record_type": "asset",
+            },
+        ]
+
+        result_records = _set_record_type(test_records)
+        self.assertEqual(result_records, expected_results)
+
+    def test_set_record_type_when_match_asset_is_missing(self):
+        """Test that `_set_record_type` skips records
+        when the `match_asset` cannot be found and logs an error.
+        """
+        test_records = [
+            {"uuid": "12345", "inventory_numbers": ["INV001"]},
+            {"uuid": "67890", "inventory_numbers": ["INV002"]},
+            {
+                "uuid": "09876",
+                "inventory_numbers": ["INV001"],
+                "match_asset": "34567",
+            },  # should be skipped, because target match_asset does not exist
+        ]
+        expected_results = [
+            {"uuid": "12345", "inventory_numbers": ["INV001"], "record_type": "asset"},
+            {"uuid": "67890", "inventory_numbers": ["INV002"], "record_type": "asset"},
+            {
+                "uuid": "09876",
+                "inventory_numbers": ["INV001"],
+                "match_asset": "34567",
+            },  # there should be an error in logs about the missing match_asset
+        ]
+
+        result_records = _set_record_type(test_records)
+        self.assertEqual(result_records, expected_results)
+        # `_set_record_type` should log an error about the missing match_asset.
+        # Check for it here in the test IO stream being used as the test log handler.
+        self.assertIn(
+            "ERROR: Match asset 34567 for record 09876 not found in metadata records.",
+            self.stream.getvalue(),
+        )
+
+    def test_update_match_record_type_with_valid_match_asset(self):
+        """Test that `_update_match_record_type` updates the `record_type` correctly
+        when there is a valid `match_asset` relationship.
+        """
+        # Test cases comprised of (record with match, matched record, expected_result)
+        test_cases = (
+            (
+                {
+                    "uuid": "09876",
+                    "inventory_numbers": ["INV001"],
+                    "match_asset": "12345",
+                },  # record with match
+                {
+                    "uuid": "12345",
+                    "inventory_numbers": ["INV001"],
+                },  # matched record
+                {
+                    "uuid": "09876",
+                    "inventory_numbers": ["INV001"],
+                    "match_asset": "12345",
+                    "record_type": "track",
+                },  # expected result
+            ),  # where inventory numbers match the target match_asset, should be track
+            (
+                {
+                    "uuid": "09876",
+                    "inventory_numbers": ["INV002"],
+                    "match_asset": "12345",
+                },  # record with match
+                {
+                    "uuid": "12345",
+                    "inventory_numbers": ["INV001"],
+                },  # matched record
+                {
+                    "uuid": "09876",
+                    "inventory_numbers": ["INV002"],
+                    "match_asset": "12345",
+                    "record_type": "asset",
+                },  # expected result
+            ),  # where inventory numbers do not match the target match_asset, should be asset
+            (
+                {
+                    "uuid": "09876",
+                    "inventory_numbers": [],
+                    "match_asset": "12345",
+                },  # record with match
+                {
+                    "uuid": "12345",
+                    "inventory_numbers": ["INV001"],
+                },  # matched record
+                {
+                    "uuid": "09876",
+                    "inventory_numbers": [],
+                    "match_asset": "12345",
+                    "record_type": "asset",
+                },  # expected result
+            ),  # where either inventory number is missing, should be asset
+        )
+
+        for test_case in test_cases:
+            with self.subTest(test_case=test_case):
+                test_record, test_matched_record, expected_result = test_case
+                result_record = _update_match_record_type(
+                    test_record, test_matched_record
+                )
+                self.assertEqual(result_record, expected_result)
