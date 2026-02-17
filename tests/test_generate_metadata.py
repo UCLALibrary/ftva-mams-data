@@ -13,7 +13,10 @@ class TestGenerateMetadata(unittest.TestCase):
     """Test the `generate_metadata` module."""
 
     def setUp(self):
-        # Use a stream handler for tests to avoid file and console logging
+        # The logger used in these tests is imported from `generate_metadata.py`,
+        # so this setUp method clears existing file and console handlers,
+        # then sets up a new test handler that captures the messages emitted in `generate_metadata`
+        # to an IO stream, which can then be used in tests, without log files or console output.
         for handler in logger.handlers:
             handler.close()
             logger.removeHandler(handler)
@@ -28,7 +31,7 @@ class TestGenerateMetadata(unittest.TestCase):
         self.stream = stream
 
     def tearDown(self):
-        # Clean up test logging handler
+        # Reset the test handler after each test, to avoid multiple streams being created.
         for handler in self.logger.handlers:
             handler.close()
             self.logger.removeHandler(handler)
@@ -139,6 +142,8 @@ class TestGenerateMetadata(unittest.TestCase):
 
         result_records = _set_record_type(test_records)
         self.assertEqual(result_records, expected_results)
+        # `_set_record_type` should log an error about the missing match_asset.
+        # Check for it here in the test IO stream being used as the test log handler.
         self.assertIn(
             "ERROR: Match asset 34567 for record 09876 not found in metadata records.",
             self.stream.getvalue(),
