@@ -165,18 +165,6 @@ TRANSFORMERS = {
 }
 
 
-def _apply_transformers(field_name: str, value: str) -> str:
-    """Apply transformers on the provided field.
-
-    :param field_name: The field name to transform.
-    :param value: The value to transform.
-    :return: The transformed value.
-    """
-    for transformer in TRANSFORMERS[field_name]:
-        value = transformer(value)
-    return value
-
-
 def _split_multivalue_field(value: str) -> list[str]:
     """Split multivalue field (delimited by "\r" or ";") into a list of values."""
     # Normalize delimiters to "\r"
@@ -189,6 +177,26 @@ def _rejoin_multivalue_field(values: list[str]) -> str:
     filtering out any Falsy values to avoid whitespace gaps in the final result.
     """
     return "\r".join(filter(None, values))
+
+
+def _apply_transformers(field_name: str, raw_value: str) -> str:
+    """Apply transformers on the provided field,
+    first splitting multi-value fields into a list of values,
+    applying the transformers to each value individually,
+    then re-joining the results into a single string with the delimiter "\r",
+    because that's what Filemaker expects for multi-value fields.
+
+    :param field_name: The field name to transform.
+    :param raw_value: The raw value to transform, possibly a multi-value field.
+    :return: The transformed value.
+    """
+    split_values = _split_multivalue_field(raw_value)
+    transformed_values = []
+    for value in split_values:
+        for transformer in TRANSFORMERS[field_name]:
+            value = transformer(value)
+        transformed_values.append(value)
+    return _rejoin_multivalue_field(transformed_values)
 
 
 # --------------------
@@ -284,16 +292,7 @@ def _process_record(
 
     for field_name in field_names:
         current_value = str(fm_record[field_name])
-
-        # Split multi-value fields into a list of values
-        split_values = _split_multivalue_field(current_value)
-        # Apply transformers to each value individually
-        transformed_values = [
-            _apply_transformers(field_name, value) for value in split_values
-        ]
-        # Then rejoin the values into a single string with the delimiter "\r",
-        # because that's what Filemaker expects for multivalue fields
-        new_value = _rejoin_multivalue_field(transformed_values)
+        new_value = _apply_transformers(field_name, current_value)
 
         if current_value == new_value:  # skip if no change
             continue
