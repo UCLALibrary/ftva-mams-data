@@ -1,7 +1,7 @@
-import csv
 import tomllib
 import logging
 import argparse
+import re
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -14,8 +14,6 @@ import time
 # Creating module-level logger here;
 # handlers are configured via `_configure_logging`.
 logger = logging.getLogger(Path(__file__).stem)
-
-_PAGE_SIZE = 5000
 
 
 # --------------------
@@ -87,6 +85,13 @@ def _get_arguments() -> argparse.Namespace:
         action="store_true",
         help="DRY RUN: preview changes without writing anything to Filemaker.",
     )
+    parser.add_argument(
+        "--page_size",
+        type=int,
+        default=5000,
+        required=False,
+        help="Page size (i.e. `limit` param) for fetching records from Filemaker. Default is 5000.",
+    )
     return parser.parse_args()
 
 
@@ -101,18 +106,25 @@ def _get_config(config_file_name: str) -> dict:
 
 
 # --------------------
-# Transformers
+# Mappings and transformers
+#
+# TODO: Move this section into a separate module,
+# as the number of fields grows.
 # --------------------
-def _load_mapping(path: Path) -> dict[str, str]:
-    """Read a two-column CSV with 'from' and 'to' headers into a substitution dict.
-
-    :param path: Path to the mapping CSV file.
-    :return: Dict mapping each 'from' value to its corresponding 'to' value.
-    """
-    # Load mapping CSV file with UTF-8 encoding
-    with open(path, encoding="utf-8") as file:
-        reader = csv.DictReader(file)
-        return {row["from"]: row["to"] for row in reader}
+MAPPINGS = {
+    "production_type": {
+        "Television": "TELEVISION SERIES",
+        "Newsreel": "NEWSREELS",
+        "TITLES, BKGD, OUTS": "TITLES, BKGD, Overlays",
+        "Made for TV Movies": "MADE FOR TV MOVIE",
+        "MADE-FOR-TV": "MADE FOR TV MOVIE",
+        "Silent Films": "SILENT FILM",
+        "SILENT FILMS": "SILENT FILM",
+        "FULL SILENT APERTURE 1.33:1": None,
+        "SF": None,
+        "SE": None,
+    }
+}
 
 
 def _trim_whitespace(value: str) -> str:
@@ -120,16 +132,68 @@ def _trim_whitespace(value: str) -> str:
     return value.strip()
 
 
-def _standardize_delimiters(value: str) -> str:
-    """Standardize delimiters in provided value."""
-    return value.replace(";", "\r")
-
-
 def _replace_ampersand(value: str) -> str:
     """Replace ampersand with 'and' in provided value."""
-    return value.replace("&", "and")
+    special_cases = ["B&W"]  # Cases where we don't want to replace ampersand
+    return value.replace("&", "and") if value not in special_cases else value
 
 
+def _dedupe_repeated_phrase(value: str) -> str:
+    """Remove repeated phrases from provided value (e.g. "SHORT SHORT" -> "SHORT")."""
+    # LLM generated this regex:
+    # it gets the shortest phrase before the first space into a named group "phrase"
+    # then looks for the same phrase again after the space, one or more times.
+    # The unique phrase can be accessed in the match group "phrase".
+    pattern = re.compile(
+        r"^(?P<phrase>.+?)\s+(?P=phrase)$", re.IGNORECASE | re.MULTILINE
+    )
+    match = pattern.match(value)
+    return match.group("phrase") if match else value
+
+
+# These list out the transformers to apply for each target field.
+# We can reuse generic transformers, but apply them in different orders if need be.
+TRANSFORMERS = {
+    "production_type": [
+        _trim_whitespace,
+        _replace_ampersand,
+        _dedupe_repeated_phrase,
+        lambda value: MAPPINGS["production_type"].get(
+            value, value
+        ),  # Apply the mapping defined above
+    ]
+}
+
+
+def _apply_transformers(field_name: str, value: str) -> str:
+    """Apply transformers on the provided field.
+
+    :param field_name: The field name to transform.
+    :param value: The value to transform.
+    :return: The transformed value.
+    """
+    for transformer in TRANSFORMERS[field_name]:
+        value = transformer(value)
+    return value
+
+
+def _split_multivalue_field(value: str) -> list[str]:
+    """Split multivalue field (delimited by "\r" or ";") into a list of values."""
+    # Normalize delimiters to "\r"
+    value = value.replace(";", "\r")
+    return value.split("\r")
+
+
+def _rejoin_multivalue_field(values: list[str]) -> str:
+    """Rejoin list of values into a multivalue field (delimited by "\r"),
+    filtering out any Falsy values to avoid whitespace gaps in the final result.
+    """
+    return "\r".join(filter(None, values))
+
+
+# --------------------
+# Batch processing functions
+# --------------------
 def _initialize_client(config: dict) -> FilemakerClient:
     """Initialize and return a configured Filemaker client.
 
@@ -166,7 +230,7 @@ def _validate_fields(field_names: list[str], fm_record: Record) -> None:
         )
 
 
-def _get_all_records(fm_client: FilemakerClient) -> Iterator[Record]:
+def _get_all_records(fm_client: FilemakerClient, page_size: int) -> Iterator[Record]:
     """Yield every record in the Filemaker database, paginating automatically.
 
     :param fm_client: A configured FilemakerClient instance.
@@ -174,13 +238,11 @@ def _get_all_records(fm_client: FilemakerClient) -> Iterator[Record]:
     """
     offset = 1
     while True:
-        logger.info(
-            f"Getting records from offset {offset} to {offset + _PAGE_SIZE - 1}..."
-        )
+        logger.info(f"Getting records {offset} to {offset + page_size - 1}...")
         try:
             records = fm_client._fms.get_records(
                 offset=offset,
-                limit=_PAGE_SIZE,
+                limit=page_size,
             )
         except FileMakerError as error:
             # FileMakerError doesn't provide the error code as an integer,
@@ -196,32 +258,7 @@ def _get_all_records(fm_client: FilemakerClient) -> Iterator[Record]:
             return
 
         yield from records
-        offset += _PAGE_SIZE
-
-
-def _apply_transformations(field_name: str, current_value: str) -> str:
-    """Apply transformations to the provided field value.
-
-    :param field_name: The field name to transform.
-    :param current_value: The current value of the field.
-    :return: The transformed value.
-    """
-    # First apply mappings specified in `filemaker_mappings` directory
-    mappings_dir = Path(__file__).parent / "filemaker_mappings"
-    mapping_path = mappings_dir / f"{field_name}.csv"
-    mapping = _load_mapping(mapping_path)
-    current_value = mapping.get(current_value, current_value)
-
-    # Then apply generic transformations
-    transforms = [
-        _trim_whitespace,
-        _standardize_delimiters,
-        _replace_ampersand,
-    ]
-    for transform in transforms:
-        current_value = transform(current_value)
-
-    return current_value
+        offset += page_size
 
 
 def _process_record(
@@ -247,16 +284,25 @@ def _process_record(
 
     for field_name in field_names:
         current_value = str(fm_record[field_name])
-        new_value = _apply_transformations(field_name, current_value)
+
+        # Split multi-value fields into a list of values
+        split_values = _split_multivalue_field(current_value)
+        # Apply transformers to each value individually
+        transformed_values = [
+            _apply_transformers(field_name, value) for value in split_values
+        ]
+        # Then rejoin the values into a single string with the delimiter "\r",
+        # because that's what Filemaker expects for multivalue fields
+        new_value = _rejoin_multivalue_field(transformed_values)
 
         if current_value == new_value:  # skip if no change
             continue
 
         logger.debug(
-            f"UPDATE field_name={field_name!r} "
-            f"record_id={record_id!r} inventory_id={inventory_id!r} "
-            f"from={current_value!r} to={new_value!r}"
-        )
+            f"UPDATE field_name={field_name} "
+            f"record_id={record_id} inventory_id={inventory_id} "
+            f"from={current_value!r} to={(new_value or '')!r}"  # use `!r` so `\r` is visible in log
+        )  # log changes as debug so they don't clutter the console
 
         pending_changes[field_name] = new_value
 
@@ -280,12 +326,14 @@ def _process_batch(
     field_names: list[str],
     fm_client: FilemakerClient,
     dry_run: bool,
+    page_size: int,
 ) -> dict[str, int]:
     """Apply transformations to the provided fields on the Filemaker records.
 
     :param field_names: The field names to process.
     :param fm_client: Configured `FilemakerClient` instance.
     :param dry_run: If True, log changes without writing to Filemaker.
+    :param page_size: Page size (i.e. `limit` param) for fetching records from Filemaker.
     :return: Stats summarizing records processed, updated, and changes applied.
     """
     stats = {
@@ -295,7 +343,7 @@ def _process_batch(
     }
     fields_validated = False
 
-    for fm_record in _get_all_records(fm_client):
+    for fm_record in _get_all_records(fm_client, page_size):
         # Validate fields against first record
         if not fields_validated:
             _validate_fields(field_names, fm_record)
@@ -323,7 +371,7 @@ def main() -> None:
 
     fm_client = _initialize_client(config)
 
-    stats = _process_batch(field_names, fm_client, args.dry_run)
+    stats = _process_batch(field_names, fm_client, args.dry_run, args.page_size)
 
     action = "Would update" if args.dry_run else "Updated"
     logger.info(
