@@ -112,15 +112,20 @@ def _get_config(config_file_name: str) -> dict:
 # as the number of fields grows.
 # --------------------
 MAPPINGS = {
+    # NOTE: to smooth out casing inconsistencies,
+    # all values (except special cases) will be uppercased prior to mapping,
+    # so keys need to be provided in uppercase here to ensure consistent mapping.
+    # These mappings are intended to standardize variants of the same term into a controlled list,
+    # not to handle casing issues, which are treated separately.
     "production_type": {
-        "Television": "TELEVISION SERIES",
-        "Newsreel": "NEWSREELS",
+        "NEWSREEL": "NEWSREELS",
         "TITLES, BKGD, OUTS": "TITLES, BKGD, Overlays",
-        "Made for TV Movies": "MADE FOR TV MOVIE",
+        "TITLES, BKGD, OVERLAYS": "TITLES, BKGD, Overlays",  # special case: "Overlays" keeps casing
+        "TRIMS AND OUTS": "Trims and Outs",  # special case: "Trims and Outs" keeps casing
+        "MADE FOR TV MOVIES": "MADE FOR TV MOVIE",  # strip trailing "S"
         "MADE-FOR-TV": "MADE FOR TV MOVIE",
-        "Silent Films": "SILENT FILM",
         "SILENT FILMS": "SILENT FILM",
-        "FULL SILENT APERTURE 1.33:1": None,
+        "FULL SILENT APERTURE 1.33:1": None,  # None means the value will be removed
         "SF": None,
         "SE": None,
     }
@@ -151,6 +156,12 @@ def _dedupe_repeated_phrase(value: str) -> str:
     return match.group("phrase") if match else value
 
 
+def _make_uppercase(value: str) -> str:
+    """Convert the provided value to uppercase, except for some special cases."""
+    special_cases = ["TITLES, BKGD, Overlays", "Trims and Outs"]
+    return value.upper() if value not in special_cases else value
+
+
 # These list out the transformers to apply for each target field.
 # We can reuse generic transformers, but apply them in different orders if need be.
 TRANSFORMERS = {
@@ -158,6 +169,7 @@ TRANSFORMERS = {
         _trim_whitespace,
         _replace_ampersand,
         _dedupe_repeated_phrase,
+        _make_uppercase,
         lambda value: MAPPINGS["production_type"].get(
             value, value
         ),  # Apply the mapping defined above

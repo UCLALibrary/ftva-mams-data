@@ -9,7 +9,6 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
         # Test values derived from standardization rules provided by FTVA staff
         # Organized as (input, expected output) tuples
         self.test_production_type_values = [
-            ("Television", "TELEVISION SERIES"),
             ("Newsreel", "NEWSREELS"),
             ("TITLES, BKGD, OUTS\r ", "TITLES, BKGD, Overlays"),
             ("Made for TV Movies", "MADE FOR TV MOVIE"),
@@ -38,12 +37,16 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ),
             (
                 "B&W\rTRIMS & OUTS",
-                "B&W\rTRIMS AND OUTS",
+                "B&W\rTrims and Outs",  # special case: "Trims and Outs" keeps casing
             ),  # & should be replaced with "and", except for special cases such as B&W
             (
                 "SHORT SHORT\rTRIMS AND OUTS TRIMS AND OUTS",
-                "SHORT\rTRIMS AND OUTS",
+                "SHORT\rTrims and Outs",  # special case: "Trims and Outs" keeps casing
             ),  # repeated phrases should be deduped
+            (
+                "TITLES, BKGD, OVERLAYS",
+                "TITLES, BKGD, Overlays",  # special case: "Overlays" keeps casing
+            ),
         ]
 
     def test_production_type_mapping(self):
