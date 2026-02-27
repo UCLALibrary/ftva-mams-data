@@ -36,6 +36,14 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "FULL SILENT APERTURE 1.33:1\rSHORT\rANIMATION\rSPECIALS",
                 "SHORT\rANIMATION\rSPECIALS",
             ),
+            (
+                "B&W\rTRIMS & OUTS",
+                "B&W\rTRIMS AND OUTS",
+            ),  # & should be replaced with "and", except for special cases such as B&W
+            (
+                "SHORT SHORT\rTRIMS AND OUTS TRIMS AND OUTS",
+                "SHORT\rTRIMS AND OUTS",
+            ),  # repeated phrases should be deduped
         ]
 
     def test_production_type_mapping(self):
