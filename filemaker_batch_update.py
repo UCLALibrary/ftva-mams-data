@@ -343,13 +343,15 @@ def _process_batch(
     fields_validated = False
 
     for fm_record in _get_all_records(fm_client, page_size):
-        # Validate fields against first record
+        # Validate fields against first record.
+        # Invalid fields will raise an exception and cause the program to exit,
+        # with a message explaining which fields are missing and which are available.
         if not fields_validated:
             _validate_fields(field_names, fm_record)
             fields_validated = True
 
-        stats["records_processed"] += 1
         change_count = _process_record(fm_record, field_names, dry_run, fm_client)
+        stats["records_processed"] += 1
         if change_count > 0:
             stats["records_updated"] += 1
             stats["total_changes_applied"] += change_count
@@ -365,12 +367,28 @@ def main() -> None:
     if args.dry_run:
         logger.info("DRY RUN: no changes will be written to Filemaker.")
 
-    field_names = args.fields
+    field_names: list[str] = args.fields
     logger.info(f"Fields to process: {field_names}")
+
+    # Log an error and exit if no transformers are defined for any of the provided fields
+    fields_with_transformers = [f for f in field_names if f in TRANSFORMERS]
+    if not fields_with_transformers:
+        logger.error("No transformers defined for any of the provided fields. Exiting.")
+        return
+
+    # Log a warning if some of the provided fields don't have transformers defined
+    fields_without_transformers = [f for f in field_names if f not in TRANSFORMERS]
+    if fields_without_transformers:
+        logger.warning(
+            f"No transformers defined for field(s): {fields_without_transformers}. "
+            "These fields will not be processed."
+        )
 
     fm_client = _initialize_client(config)
 
-    stats = _process_batch(field_names, fm_client, args.dry_run, args.page_size)
+    stats = _process_batch(
+        fields_with_transformers, fm_client, args.dry_run, args.page_size
+    )
 
     action = "Would update" if args.dry_run else "Updated"
     logger.info(
