@@ -256,14 +256,18 @@ def _get_all_records(fm_client: FilemakerClient, page_size: int) -> Iterator[Rec
     :param fm_client: A configured FilemakerClient instance.
     :yields: Individual fmrest `Record` objects.
     """
+    logger.info(f"Retrieving records in pages of {page_size}...")
     offset = 1
     while True:
-        logger.info(f"Getting records {offset} to {offset + page_size - 1}...")
         try:
             records = fm_client._fms.get_records(
                 offset=offset,
                 limit=page_size,
             )
+            record_count = len(
+                list(records)
+            )  # need to convert `Foundset` to list to get length
+            logger.info(f"Retrieved records {offset} to {offset + record_count - 1}...")
         except FileMakerError as error:
             # FileMakerError doesn't provide the error code as an integer,
             # but rather as a string message, so check the string for
@@ -271,6 +275,7 @@ def _get_all_records(fm_client: FilemakerClient, page_size: int) -> Iterator[Rec
             # indicating end of pagination.
             # Filemaker error codes @https://help.claris.com/en/pro-help/content/error-codes.html
             if "error 101" in error.args[0]:
+                logger.info("All records retrieved.")
                 return  # no more records; pagination complete
             raise
         # After final page reached, keep checking for records until iterator is exhausted
