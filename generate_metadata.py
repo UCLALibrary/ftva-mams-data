@@ -418,7 +418,8 @@ def main() -> None:
         metadata_records = _set_record_type(metadata_records)
         # Remove temporary 'file_type' field before output
         for record in metadata_records:
-            record.pop("file_type", None)
+            if record.get("file_type") != "DPX":  # Keep `file_type` on DPX records
+                record.pop("file_type", None)
         output_dict = {"media": {"assets": metadata_records}}
         _write_output_file(
             Path(args.output_dir, f"{output_filename_stem}.json"), output_dict
