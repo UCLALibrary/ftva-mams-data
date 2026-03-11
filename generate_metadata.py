@@ -202,20 +202,12 @@ def _process_input_data(
                 )
                 continue
 
-        if bib_record:
-            metadata_record = get_mams_metadata(
-                digital_data_record,
-                filemaker_record,
-                bib_record,
-                match_asset_uuid,
-            )
-        else:
-            metadata_record = get_mams_metadata(
-                digital_data_record,
-                filemaker_record,
-                None,
-                match_asset_uuid,
-            )
+        metadata_record = get_mams_metadata(
+            digital_data_record,
+            filemaker_record,
+            bib_record,
+            match_asset_uuid,
+        )
 
         # Add temporary field for file_type to be used later for DPX splitting
         metadata_record["file_type"] = digital_data_record.get("file_type", "")
