@@ -203,10 +203,10 @@ def _process_input_data(
                 continue
 
         metadata_record = get_mams_metadata(
-            digital_data_record,
-            filemaker_record,
-            bib_record,
-            match_asset_uuid,
+            digital_data_record=digital_data_record,
+            filemaker_record=filemaker_record,
+            bib_record=bib_record,
+            match_asset_uuid=match_asset_uuid,
         )
 
         # Add temporary field for file_type to be used later for DPX splitting
