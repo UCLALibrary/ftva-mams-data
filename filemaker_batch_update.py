@@ -9,8 +9,6 @@ from ftva_etl import FilemakerClient
 from fmrest.exceptions import FileMakerError
 from fmrest.record import Record
 
-import time
-
 # Creating module-level logger here;
 # handlers are configured via `_configure_logging`.
 logger = logging.getLogger(Path(__file__).stem)
@@ -300,7 +298,7 @@ def _process_record(
     :param fm_client: Configured `FilemakerClient` instance.
     :return: Number of fields that were changed (or would be).
     """
-    record_id: str = str(fm_record.record_id)
+    record_id = fm_record.record_id
     inventory_id: str = str(fm_record.inventory_id)
 
     # Multiple fields can be changed at once by passing dict to `edit_record`,
@@ -323,10 +321,7 @@ def _process_record(
         pending_changes[field_name] = new_value
 
     if pending_changes and not dry_run:
-        # TODO: Create a convenience wrapper around `edit_record` in `ftva_etl` package
-        # success = fm_client._fms.edit_record(record_id, pending_changes)
-        time.sleep(0.1)
-        success = True
+        success = fm_client.edit_record(record_id=record_id, field_data=pending_changes)
 
         if not success:
             logger.error(
