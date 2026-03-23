@@ -9,8 +9,6 @@ from ftva_etl import FilemakerClient
 from fmrest.exceptions import FileMakerError
 from fmrest.record import Record
 
-import time
-
 # Creating module-level logger here;
 # handlers are configured via `_configure_logging`.
 logger = logging.getLogger(Path(__file__).stem)
@@ -259,25 +257,12 @@ def _get_all_records(fm_client: FilemakerClient, page_size: int) -> Iterator[Rec
     logger.info(f"Retrieving records in pages of {page_size}...")
     offset = 1
     while True:
-        try:
-            records = fm_client._fms.get_records(
-                offset=offset,
-                limit=page_size,
-            )
-            record_count = len(
-                list(records)
-            )  # need to convert `Foundset` to list to get length
-            logger.info(f"Retrieved records {offset} to {offset + record_count - 1}...")
-        except FileMakerError as error:
-            # FileMakerError doesn't provide the error code as an integer,
-            # but rather as a string message, so check the string for
-            # error 101, which represents "Record is missing",
-            # indicating end of pagination.
-            # Filemaker error codes @https://help.claris.com/en/pro-help/content/error-codes.html
-            if "error 101" in error.args[0]:
-                logger.info("All records retrieved.")
-                return  # no more records; pagination complete
-            raise
+        records = fm_client.get_records(
+            offset=offset,
+            limit=page_size,
+        )
+        logger.info(f"Retrieved records {offset} to {offset + len(records) - 1}...")
+
         # After final page reached, keep checking for records until iterator is exhausted
         if not records:
             return
@@ -300,7 +285,7 @@ def _process_record(
     :param fm_client: Configured `FilemakerClient` instance.
     :return: Number of fields that were changed (or would be).
     """
-    record_id: str = str(fm_record.record_id)
+    record_id = fm_record.record_id
     inventory_id: str = str(fm_record.inventory_id)
 
     # Multiple fields can be changed at once by passing dict to `edit_record`,
@@ -323,10 +308,7 @@ def _process_record(
         pending_changes[field_name] = new_value
 
     if pending_changes and not dry_run:
-        # TODO: Create a convenience wrapper around `edit_record` in `ftva_etl` package
-        # success = fm_client._fms.edit_record(record_id, pending_changes)
-        time.sleep(0.1)
-        success = True
+        success = fm_client.edit_record(record_id=record_id, field_data=pending_changes)
 
         if not success:
             logger.error(
