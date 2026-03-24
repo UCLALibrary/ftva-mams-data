@@ -164,12 +164,23 @@ def _process_input_data(
             )
             inventory_number = digital_data_record["inventory_number"]
             # First get all results from Alma matching the inventory number
+            # There may not be any matches - if so, this is a "1-to-1" record,
+            # so we'll use only DD and FM data.
+            # Initialize bib_record variable first so we can check for it later.
+            bib_record = None
             all_bib_records = alma_sru_client.search_by_call_number(inventory_number)
-            # Then take the first record that matches the inventory number and is from FTVA library.
+            # Take the first record that matches the inventory number and is from FTVA library.
             # This prevents false matches from other libraries.
-            bib_record = filter_by_inventory_number_and_library(
+            bib_records = filter_by_inventory_number_and_library(
                 all_bib_records, inventory_number
-            )[0]
+            )
+            if bib_records:
+                bib_record = bib_records[0]
+            else:
+                logger.info(
+                    f"No Alma bib records found for inventory number '{inventory_number}' "
+                    f"on record {row['dl_record_id']}. Proceeding with DD and FM data only."
+                )
             filemaker_record = filemaker_client.search_by_inventory_number(
                 inventory_number
             )[0]
@@ -192,7 +203,10 @@ def _process_input_data(
                 continue
 
         metadata_record = get_mams_metadata(
-            bib_record, filemaker_record, digital_data_record, match_asset_uuid
+            digital_data_record=digital_data_record,
+            filemaker_record=filemaker_record,
+            bib_record=bib_record,
+            match_asset_uuid=match_asset_uuid,
         )
 
         # Add temporary field for file_type to be used later for DPX splitting
