@@ -2,6 +2,8 @@ import tomllib
 import logging
 import argparse
 import re
+from string import capwords
+from strsimpy.normalized_levenshtein import NormalizedLevenshtein
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -110,7 +112,7 @@ def _get_config(config_file_name: str) -> dict:
 # as the number of fields grows.
 # --------------------
 MAPPINGS = {
-    # NOTE: to smooth out casing inconsistencies,
+    # NOTE: for production_type values, to smooth out casing inconsistencies,
     # all values (except special cases) will be uppercased prior to mapping,
     # so keys need to be provided in uppercase here to ensure consistent mapping.
     # These mappings are intended to standardize variants of the same term into a controlled list,
@@ -126,7 +128,23 @@ MAPPINGS = {
         "FULL SILENT APERTURE 1.33:1": None,  # None means the value will be removed
         "SF": None,
         "SE": None,
-    }
+    },
+    "language": {
+        "Fr": "French",
+        "Ital": "Italian",
+        "Eng": "English",
+        "Portuguese for Brazil": "Portuguese",
+        "Unknown": "Undetermined",
+        "?": "Undetermined",
+        "": "Undetermined",  # TODO: does this capture NULLs?
+        "N/A": "No linguistic content",
+        "None": "No linguistic content",
+    },
+}
+
+FIELD_DELIMITERS = {
+    "production_type": "\r",
+    "language": ", ",
 }
 
 
@@ -160,6 +178,81 @@ def _make_uppercase(value: str) -> str:
     return value.upper() if value not in special_cases else value
 
 
+def _make_capitalized(value: str) -> str:
+    """Convert the provided value to capitalized case."""
+    return capwords(value)
+
+
+def _remove_intertitles(value: str) -> str:
+    """Remove "Intertitles" from the provided value, if present."""
+    return value.replace("Intertitles", "").strip()
+
+
+def _normalize_delimiters(value: str) -> str:
+    """Normalize delimiters in the provided value to comma and space (", ")."""
+    # Cases to normalize include: semicolons, slashes, "and", ampersands, \r,
+    # and improperly spaced commas.
+    return re.sub(r"\s*(?:[,;/]|and|&|\r)\s*", ", ", value)
+
+
+def _normalize_language_spelling(value: str) -> str:
+    """Attempt to normalize language spellings, e.g. "Gernan" -> "German"."""
+    valid_languages = [
+        "Amharic",
+        "Arabic",
+        "Chinese",
+        "Czech",
+        "Danish",
+        "Dutch",
+        "English",
+        "Ethiopic",
+        "French",
+        "German",
+        "Hebrew",
+        "Hindi",
+        "Hungarian",
+        "Indonesian",
+        "Italian",
+        "Japanese",
+        "Korean",
+        "Navajo",
+        "No linguistic content",
+        "Norwegian",
+        "Persian",
+        "Polish",
+        "Portuguese",
+        "Russian",
+        "Spanish",
+        "Swedish",
+        "Thai",
+        "Ukrainian",
+        "Undetermined",
+        "Vietnamese",
+        "Yupik languages",
+    ]
+    # Use normalized Levenshtein distance to find the closest valid language
+    levenshtein = NormalizedLevenshtein()
+    closest_language = None
+    closest_distance = float("inf")
+    for language in valid_languages:
+        distance = levenshtein.distance(value, language)
+        if distance < closest_distance:
+            closest_distance = distance
+            closest_language = language
+    # If the closest match is close enough, return it; else return original value
+    if closest_language is not None and closest_distance < 0.2:
+        if closest_language != value:
+            # Log the normalization decision, but only if a change is actually being made
+            logger.info(
+                f"Normalized language spelling: {value!r} -> {closest_language!r} "
+                f"(distance={closest_distance:.2f})"
+            )
+        return closest_language
+    else:
+        logger.info(f"No close match found for language: {value!r}. ")
+        return value
+
+
 # These list out the transformers to apply for each target field.
 # We can reuse generic transformers, but apply them in different orders if need be.
 TRANSFORMERS = {
@@ -171,42 +264,62 @@ TRANSFORMERS = {
         lambda value: MAPPINGS["production_type"].get(
             value, value
         ),  # Apply the mapping defined above
-    ]
+    ],
+    "language": [
+        _trim_whitespace,
+        _normalize_delimiters,
+        lambda value: MAPPINGS["language"].get(value, value),
+        _make_capitalized,
+        _normalize_language_spelling,
+        _dedupe_repeated_phrase,
+        _remove_intertitles,
+    ],
 }
 
 
-def _split_multivalue_field(value: str) -> list[str]:
-    """Split multivalue field (delimited by "\r" or ";") into a list of values."""
-    # Normalize delimiters to "\r"
-    value = value.replace(";", "\r")
-    return value.split("\r")
+def _split_multivalue_field(value: str, delimiter: str) -> list[str]:
+    """Split a multi-value field into a list of values, based on the provided delimiter.
+    Also trims whitespace from each value and filters out any empty values."""
+    if delimiter == ",":
+        # Normalize all possible delimiters to comma for language
+        value = re.sub(r"\s*(?:[,;/]|and|&|\r)\s*", ",", value)
+    else:
+        value = value.replace(";", delimiter)
+    return [v.strip() for v in value.split(delimiter)]
 
 
-def _rejoin_multivalue_field(values: list[str]) -> str:
-    """Rejoin list of values into a multivalue field (delimited by "\r"),
-    filtering out any Falsy values to avoid whitespace gaps in the final result.
-    """
-    return "\r".join(filter(None, values))
+def _rejoin_multivalue_field(values: list[str], delimiter: str) -> str:
+    """Rejoin list of values into a multivalue field, filtering out any Falsy values
+    to avoid whitespace gaps in the final result."""
+    # Remove duplicates and empty values
+    seen = set()
+    filtered = []
+    for v in values:
+
+        if v and v not in seen:
+            filtered.append(v)
+            seen.add(v)
+    return delimiter.join(filtered)
 
 
 def _apply_transformers(field_name: str, raw_value: str) -> str:
     """Apply transformers on the provided field,
     first splitting multi-value fields into a list of values,
     applying the transformers to each value individually,
-    then re-joining the results into a single string with the delimiter "\r",
-    because that's what Filemaker expects for multi-value fields.
+    then re-joining the results into a single string with the appropriate delimiter.
 
     :param field_name: The field name to transform.
     :param raw_value: The raw value to transform, possibly a multi-value field.
     :return: The transformed value.
     """
-    split_values = _split_multivalue_field(raw_value)
+    delimiter = FIELD_DELIMITERS.get(field_name, "\r")  # default to \r if not specified
+    split_values = _split_multivalue_field(raw_value, delimiter)
     transformed_values = []
     for value in split_values:
         for transformer in TRANSFORMERS[field_name]:
             value = transformer(value)
         transformed_values.append(value)
-    return _rejoin_multivalue_field(transformed_values)
+    return _rejoin_multivalue_field(transformed_values, delimiter)
 
 
 # --------------------
