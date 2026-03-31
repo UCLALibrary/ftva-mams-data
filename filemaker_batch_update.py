@@ -112,7 +112,7 @@ def _get_config(config_file_name: str) -> dict:
 # as the number of fields grows.
 # --------------------
 MAPPINGS = {
-    # NOTE: for production_type values, to smooth out casing inconsistencies,
+    # NOTE: to smooth out casing inconsistencies,
     # all values (except special cases) will be uppercased prior to mapping,
     # so keys need to be provided in uppercase here to ensure consistent mapping.
     # These mappings are intended to standardize variants of the same term into a controlled list,
@@ -130,14 +130,14 @@ MAPPINGS = {
         "SE": None,
     },
     "Language": {  # This key is capitalized to match FM field name
-        "fr": "French",  # These keys are all lowercase - transformers use .lower() for lookup
-        "eng": "English",
-        "portuguese for brazil": "Portuguese",
-        "unknown": "Undetermined",
+        "FR": "French",
+        "ENG": "English",
+        "PORTUGUESE FOR BRAZIL": "Portuguese",
+        "UNKNOWN": "Undetermined",
         "?": "Undetermined",
         "": "Undetermined",
-        "n/a": "No linguistic content",
-        "none": "No linguistic content",
+        "N/A": "No linguistic content",
+        "NONE": "No linguistic content",
     },
 }
 
@@ -264,7 +264,7 @@ TRANSFORMERS = {
         _normalize_language_spelling,
         _dedupe_repeated_phrase,
         _remove_intertitles,
-        lambda value: MAPPINGS["Language"].get(value.lower(), value),
+        lambda value: MAPPINGS["Language"].get(value.upper(), value),
     ],
 }
 
