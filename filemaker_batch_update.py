@@ -129,22 +129,21 @@ MAPPINGS = {
         "SF": None,
         "SE": None,
     },
-    "language": {
-        "Fr": "French",
-        "Ital": "Italian",
-        "Eng": "English",
-        "Portuguese for Brazil": "Portuguese",
-        "Unknown": "Undetermined",
+    "Language": {  # This key is capitalized to match FM field name
+        "fr": "French",  # These keys are all lowercase - transformers use .lower() for lookup
+        "eng": "English",
+        "portuguese for brazil": "Portuguese",
+        "unknown": "Undetermined",
         "?": "Undetermined",
-        "": "Undetermined",  # TODO: does this capture NULLs?
-        "N/A": "No linguistic content",
-        "None": "No linguistic content",
+        "": "Undetermined",
+        "n/a": "No linguistic content",
+        "none": "No linguistic content",
     },
 }
 
 FIELD_DELIMITERS = {
     "production_type": "\r",
-    "language": ", ",
+    "Language": ", ",
 }
 
 
@@ -186,13 +185,6 @@ def _make_capitalized(value: str) -> str:
 def _remove_intertitles(value: str) -> str:
     """Remove "Intertitles" from the provided value, if present."""
     return value.replace("Intertitles", "").strip()
-
-
-def _normalize_delimiters(value: str) -> str:
-    """Normalize delimiters in the provided value to comma and space (", ")."""
-    # Cases to normalize include: semicolons, slashes, "and", ampersands, \r,
-    # and improperly spaced commas.
-    return re.sub(r"\s*(?:[,;/]|and|&|\r)\s*", ", ", value)
 
 
 def _normalize_language_spelling(value: str) -> str:
@@ -243,13 +235,14 @@ def _normalize_language_spelling(value: str) -> str:
     if closest_language is not None and closest_distance < 0.2:
         if closest_language != value:
             # Log the normalization decision, but only if a change is actually being made
-            logger.info(
+            logger.debug(
                 f"Normalized language spelling: {value!r} -> {closest_language!r} "
                 f"(distance={closest_distance:.2f})"
             )
         return closest_language
     else:
-        logger.info(f"No close match found for language: {value!r}. ")
+        if value is not None and value.strip() != "":
+            logger.debug(f"No close match found for language: {value!r}. ")
         return value
 
 
@@ -265,14 +258,13 @@ TRANSFORMERS = {
             value, value
         ),  # Apply the mapping defined above
     ],
-    "language": [
+    "Language": [
         _trim_whitespace,
-        _normalize_delimiters,
-        lambda value: MAPPINGS["language"].get(value, value),
         _make_capitalized,
         _normalize_language_spelling,
         _dedupe_repeated_phrase,
         _remove_intertitles,
+        lambda value: MAPPINGS["Language"].get(value.lower(), value),
     ],
 }
 
@@ -280,9 +272,10 @@ TRANSFORMERS = {
 def _split_multivalue_field(value: str, delimiter: str) -> list[str]:
     """Split a multi-value field into a list of values, based on the provided delimiter.
     Also trims whitespace from each value and filters out any empty values."""
-    if delimiter == ",":
+    if delimiter == ", ":
         # Normalize all possible delimiters to comma for language
-        value = re.sub(r"\s*(?:[,;/]|and|&|\r)\s*", ",", value)
+        value = re.sub(r"\s*(?:[,;/|]|\band\b|&|\r)\s*", ", ", value)
+        logger.debug(f"Normalized delimiters to comma: {value!r}")
     else:
         value = value.replace(";", delimiter)
     return [v.strip() for v in value.split(delimiter)]
