@@ -2,6 +2,7 @@ import tomllib
 import logging
 import argparse
 import re
+from enum import StrEnum
 from string import capwords
 from strsimpy.normalized_levenshtein import NormalizedLevenshtein
 from collections.abc import Iterator
@@ -141,10 +142,10 @@ MAPPINGS = {
     },
 }
 
-FIELD_DELIMITERS = {
-    "production_type": "\r",
-    "Language": ", ",
-}
+
+class FieldDelimiters(StrEnum):
+    production_type = "\r"
+    Language = ", "
 
 
 def _trim_whitespace(value: str) -> str:
@@ -222,6 +223,10 @@ def _normalize_language_spelling(value: str) -> str:
         "Vietnamese",
         "Yupik languages",
     ]
+    # First, make sure we have a non-empty string to compare against valid languages
+    # If not, return empty string which will eventually be mapped to "Undetermined"
+    if not value or value.strip() == "":
+        return ""
     # Use normalized Levenshtein distance to find the closest valid language
     levenshtein = NormalizedLevenshtein()
     closest_language = None
@@ -241,8 +246,7 @@ def _normalize_language_spelling(value: str) -> str:
             )
         return closest_language
     else:
-        if value is not None and value.strip() != "":
-            logger.debug(f"No close match found for language: {value!r}. ")
+        logger.debug(f"No close match found for language: {value!r}. ")
         return value
 
 
@@ -261,9 +265,9 @@ TRANSFORMERS = {
     "Language": [
         _trim_whitespace,
         _make_capitalized,
-        _normalize_language_spelling,
         _dedupe_repeated_phrase,
         _remove_intertitles,
+        _normalize_language_spelling,
         lambda value: MAPPINGS["Language"].get(value.upper(), value),
     ],
 }
@@ -272,7 +276,7 @@ TRANSFORMERS = {
 def _split_multivalue_field(value: str, delimiter: str) -> list[str]:
     """Split a multi-value field into a list of values, based on the provided delimiter.
     Also trims whitespace from each value and filters out any empty values."""
-    if delimiter == ", ":
+    if delimiter == FieldDelimiters["Language"].value:
         # Normalize all possible delimiters to comma for language
         value = re.sub(r"\s*(?:[,;/|]|\band\b|&|\r)\s*", ", ", value)
         logger.debug(f"Normalized delimiters to comma: {value!r}")
@@ -305,7 +309,7 @@ def _apply_transformers(field_name: str, raw_value: str) -> str:
     :param raw_value: The raw value to transform, possibly a multi-value field.
     :return: The transformed value.
     """
-    delimiter = FIELD_DELIMITERS.get(field_name, "\r")  # default to \r if not specified
+    delimiter = FieldDelimiters[field_name].value
     split_values = _split_multivalue_field(raw_value, delimiter)
     transformed_values = []
     for value in split_values:
