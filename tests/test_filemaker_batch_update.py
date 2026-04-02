@@ -48,9 +48,30 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "TITLES, BKGD, Overlays",  # special case: "Overlays" keeps casing
             ),
         ]
+        self.test_language_values = [
+            ("english", "English"),
+            ("ENGLISH ", "English"),  # trailing whitespace
+            ("Englsh", "English"),  # misspelling
+            ("German; English", "German, English"),  # semicolon delimiter
+            ("French/German", "French, German"),  # slash delimiter
+            ("Italian | Spanish", "Italian, Spanish"),  # pipe delimiter
+            ("Spanish and Italian", "Spanish, Italian"),  # "and" delimiter
+            ("Chinese & Japanese", "Chinese, Japanese"),  # ampersand delimiter
+            ("Russian,Italian", "Russian, Italian"),  # improperly spaced comma
+            ("English; English", "English"),  # repeated language should be deduped
+            ("Portuguese for Brazil", "Portuguese"),  # special case, known value
+            ("?", "Undetermined"),  # special case, known value
+            ("Russian Intertitles", "Russian"),  # "Intertitles" should be removed
+        ]
 
     def test_production_type_mapping(self):
         for input, expected in self.test_production_type_values:
             with self.subTest(input=input, expected=expected):
                 new_value = _apply_transformers("production_type", input)
+                self.assertEqual(new_value, expected)
+
+    def test_language_mapping(self):
+        for input, expected in self.test_language_values:
+            with self.subTest(input=input, expected=expected):
+                new_value = _apply_transformers("Language", input)
                 self.assertEqual(new_value, expected)
