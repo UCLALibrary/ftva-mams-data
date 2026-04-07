@@ -418,14 +418,28 @@ def _process_record(
         pending_changes[field_name] = new_value
 
     if pending_changes and not dry_run:
-        success = fm_client.edit_record(record_id=record_id, field_data=pending_changes)
+        try:
+            success = fm_client.edit_record(
+                record_id=record_id, field_data=pending_changes
+            )
+        except FileMakerError as e:
+            # Log the error and continue processing other records
+            logger.error(
+                f"Skipping record_id={record_id} inventory_id={inventory_id!r} "
+                f"due to FileMaker error: {e}"
+            )
+            # Return 0 here to show that no changes were made
+            return 0
 
+        # fm_client.edit_record will return False if the update fails for a non-exception reason,
+        # so log that as well and return 0 to show that no changes were made
         if not success:
             logger.error(
                 f"Update failed for record_id={record_id} "
                 f"(inventory_id={inventory_id!r}). "
                 f"Filemaker last_error={fm_client._fms.last_error}"
             )
+            return 0
 
     return len(pending_changes)
 
