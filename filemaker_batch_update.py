@@ -426,7 +426,8 @@ def _process_record(
             # Log the error and continue processing other records
             logger.error(
                 f"Skipping record_id={record_id} inventory_id={inventory_id!r} "
-                f"due to Filemaker error: {e}"
+                f"due to Filemaker error: {e}. "
+                f"Pending changes were: {pending_changes}"
             )
             # Return 0 here to show that no changes were made
             return 0
