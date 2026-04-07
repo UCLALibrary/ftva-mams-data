@@ -418,14 +418,29 @@ def _process_record(
         pending_changes[field_name] = new_value
 
     if pending_changes and not dry_run:
-        success = fm_client.edit_record(record_id=record_id, field_data=pending_changes)
+        try:
+            success = fm_client.edit_record(
+                record_id=record_id, field_data=pending_changes
+            )
+        except FileMakerError as e:
+            # Log the error and continue processing other records
+            logger.error(
+                f"Skipping record_id={record_id} inventory_id={inventory_id!r} "
+                f"due to Filemaker error: {e}. "
+                f"Pending changes were: {pending_changes}"
+            )
+            # Return 0 here to show that no changes were made
+            return 0
 
+        # fm_client.edit_record will return False if the update fails without raising an exception,
+        # so log that as well and return 0 to show that no changes were made
         if not success:
             logger.error(
                 f"Update failed for record_id={record_id} "
                 f"(inventory_id={inventory_id!r}). "
                 f"Filemaker last_error={fm_client._fms.last_error}"
             )
+            return 0
 
     return len(pending_changes)
 
@@ -448,6 +463,7 @@ def _process_batch(
         "records_processed": 0,
         "records_updated": 0,
         "total_changes_applied": 0,
+        "updates_failed": 0,
     }
     fields_validated = False
 
@@ -464,6 +480,8 @@ def _process_batch(
         if change_count > 0:
             stats["records_updated"] += 1
             stats["total_changes_applied"] += change_count
+        elif change_count == 0 and not dry_run:
+            stats["updates_failed"] += 1
 
     return stats
 
@@ -506,6 +524,8 @@ def main() -> None:
         f"{action} {stats['records_updated']} record(s) "
         f"with {stats['total_changes_applied']} total field change(s)."
     )
+    if stats["updates_failed"] > 0:
+        logger.warning(f"{stats['updates_failed']} record update(s) failed.")
 
 
 if __name__ == "__main__":
