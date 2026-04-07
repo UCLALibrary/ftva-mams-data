@@ -426,12 +426,12 @@ def _process_record(
             # Log the error and continue processing other records
             logger.error(
                 f"Skipping record_id={record_id} inventory_id={inventory_id!r} "
-                f"due to FileMaker error: {e}"
+                f"due to Filemaker error: {e}"
             )
             # Return 0 here to show that no changes were made
             return 0
 
-        # fm_client.edit_record will return False if the update fails for a non-exception reason,
+        # fm_client.edit_record will return False if the update fails without raising an exception,
         # so log that as well and return 0 to show that no changes were made
         if not success:
             logger.error(
