@@ -16,6 +16,39 @@ from fmrest.record import Record
 # handlers are configured via `_configure_logging`.
 logger = logging.getLogger(Path(__file__).stem)
 
+# These are delimiter variations used in Filemaker multi-value fields
+FM_DELIMITER_PATTERN = r"\s*(?:[,;/|]|\band\b|&|\r)\s*"
+
+DIRECTOR_NAME_PARTICLES = (
+    "de",
+    "la",
+    "le",
+    "du",
+    "des",
+    "van",
+    "von",
+    "ver",
+    "ten",
+    "ter",
+    "den",
+    "der",
+    "da",
+    "di",
+    "del",
+    "della",
+    "delle",
+    "degli",
+    "dell",
+    "dos",
+    "das",
+    "do",
+    "el",
+    "al",
+    "los",
+    "las",
+    "y",
+)
+
 
 # --------------------
 # Helper functions
@@ -140,12 +173,20 @@ MAPPINGS = {
         "N/A": "No linguistic content",
         "NONE": "No linguistic content",
     },
+    "director": {
+        "NO DIRECTOR LISTED": "N/A",
+        "N/A": "N/A",
+        "NULL": "Unknown",
+        "UNKNOWN": "Unknown",
+        "": "Unknown",
+    },
 }
 
 
 class FieldDelimiters(StrEnum):
     production_type = "\r"
     Language = ", "
+    director = ", "
 
 
 def _trim_whitespace(value: str) -> str:
@@ -181,6 +222,86 @@ def _make_uppercase(value: str) -> str:
 def _make_capitalized(value: str) -> str:
     """Convert the provided value to capitalized case."""
     return capwords(value)
+
+
+def _is_initials_token(token: str) -> bool:
+    """True if token is only single-letter initials separated by dots (e.g. A.B. or c.d.e.)."""
+    compact = token.replace(" ", "")
+    if not compact or not all(c.isalpha() or c == "." for c in compact):
+        return False
+    segments = [s for s in compact.split(".") if s]
+    return bool(segments) and all(len(s) == 1 and s.isalpha() for s in segments)
+
+
+def _format_initials(token: str) -> str:
+    """Normalize an initials token to the form A.B.C."""
+    letters = [c for c in token if c.isalpha()]
+    return ".".join(c.upper() for c in letters) + "."
+
+
+def _standardize_name_token(raw: str, word_index: int, n_words: int) -> str:
+    """Apply per-token rules inside one whitespace-delimited word (hyphens preserved)."""
+    hyphen_chunks = raw.split("-")
+    out_chunks = []
+    for chunk in hyphen_chunks:
+        if _is_initials_token(chunk):
+            out_chunks.append(_format_initials(chunk))
+        elif (
+            n_words > 1
+            and 0 < word_index < n_words - 1
+            and len(hyphen_chunks) == 1
+            and chunk.lower() in DIRECTOR_NAME_PARTICLES
+        ):
+            out_chunks.append(chunk.lower())
+        else:
+            out_chunks.append(chunk.capitalize())
+    return "-".join(out_chunks)
+
+
+def _standardize_director_name(name: str) -> str:
+    """Return a standardized format for director names, according to specs:
+
+    - Initials stay uppercase with dots between letters (e.g. A.B., C.D.E.).
+    - Common particles between first and last name stay lowercase (e.g. de la, van der).
+    - All other word parts use simple title case.
+
+    :param name: Raw name string.
+    :return: Standardized name string.
+    """
+    words = name.split()
+    n = len(words)
+    return " ".join(_standardize_name_token(w, i, n) for i, w in enumerate(words))
+
+
+def _parse_credited_names(value: str) -> str:
+    """Parse credited names from the provided value, according to specs:
+
+    - Use name following "as", e.g. Lew Landers (as Louis Friedlander) -> Louis Friedlander
+    - Use name before "i.e.", e.g. William Goodrich [i.e. Roscoe Arbuckle] -> William Goodrich
+    - Use name before "aka", e.g. Marcus aka Sid Marcus -> Marcus
+    - Note that "i.e." is normalized in `_split_multivalue_field` to avoid splitting on the comma
+
+    :param value: Raw value string.
+    :return: Parsed credited names string.
+    """
+    # Remove square brackets and parentheses and lowercase the value
+    value = re.sub(r"[\[\]\(\)]", "", value.lower())
+
+    if " as " in value:
+        parts = value.split(" as ")
+        if len(parts) == 2:
+            return parts[1].strip()
+
+    if "i.e." in value:
+        parts = value.split(" i.e. ")
+        if len(parts) == 2:
+            return parts[0].strip()
+
+    if " aka " in value:
+        parts = value.split(" aka ")
+        if len(parts) == 2:
+            return parts[0].strip()
+    return value
 
 
 def _remove_intertitles(value: str) -> str:
@@ -270,27 +391,62 @@ TRANSFORMERS = {
         _normalize_language_spelling,
         lambda value: MAPPINGS["Language"].get(value.upper(), value),
     ],
+    "director": [
+        _trim_whitespace,
+        _parse_credited_names,
+        _standardize_director_name,
+        lambda value: MAPPINGS["director"].get(value.upper(), value),
+    ],
 }
 
 
-def _split_multivalue_field(value: str, delimiter: str) -> list[str]:
-    """Split a multi-value field into a list of values, based on the provided delimiter.
-    Also trims whitespace from each value and filters out any empty values."""
-    if delimiter == FieldDelimiters["Language"].value:
-        # First, check for the known value "N/A.
-        # If present, replace with "NONE" and process as usual,
-        # which will eventually be mapped to "No linguistic content" by the mapping function.
-        if "N/A" in value:
-            logger.debug(
-                "Found known value 'N/A' in language field; replacing with 'NONE'."
-            )
-            value = value.replace("N/A", "NONE")
-        # Normalize all possible delimiters to comma for language
-        value = re.sub(r"\s*(?:[,;/|]|\band\b|&|\r)\s*", ", ", value)
-        logger.debug(f"Normalized delimiters to comma: {value!r}")
+def _normalize_multivalue_delimiters(value: str, delimiter: str) -> str:
+    """Normalize the delimiters in the provided value to the provided delimiter."""
+    new_value = re.sub(FM_DELIMITER_PATTERN, delimiter, value)
+    logger.debug(f"Normalized delimiters: {value!r} -> {new_value!r}")
+    return new_value
+
+
+def _split_multivalue_field(
+    field_name: str, value: str, delimiter: str
+) -> tuple[list[str], bool]:
+    """Splits a multi-value field into a list of values, based on the provided delimiter.
+    Also trims whitespace from each value and filters out any empty values.
+
+    Also returns a boolean indicating whether to skip transformers,
+    to preserve values as-is for certain fields.
+
+    :param field_name: The field name, for special handling of certain fields.
+    :param value: The input value to split.
+    :param delimiter: The delimiter to split on.
+    :return: A list of individual values, and a boolean indicating whether to skip transformers.
+    """
+    value = value.strip()
+    if not value:
+        return [""], False
+
+    # Handle special cases
+    if field_name == "Language":
+        # Normalize FM delimiters to comma for language
+        value = _normalize_multivalue_delimiters(value, delimiter)
+    elif field_name == "director":
+        exclusions = ["N/A"]  # Slash in N/A is not a delimiter
+        if value.upper() in exclusions:
+            # Exclusions should not have delimiters changes, but should still be transformed
+            return [value], False
+        # Normalize "i.e.," to "i.e." before delimiter normalization
+        # so that commas in "i.e.," are not counted as delimiters
+        value = re.sub(r"i\.\s*e\.\s*,", "i.e.", value, flags=re.IGNORECASE)
+        matches = re.findall(FM_DELIMITER_PATTERN, value)
+        if len(set(matches)) > 1:
+            # If multiple delimiter types are found,
+            # return value as-is and skip transformers.
+            return [value], True
+        value = _normalize_multivalue_delimiters(value, delimiter)
+    # Default to normalizing semicolons with delimiter
     else:
         value = value.replace(";", delimiter)
-    return [v.strip() for v in value.split(delimiter)]
+    return [v.strip() for v in value.split(delimiter)], False
 
 
 def _rejoin_multivalue_field(values: list[str], delimiter: str) -> str:
@@ -300,7 +456,6 @@ def _rejoin_multivalue_field(values: list[str], delimiter: str) -> str:
     seen = set()
     filtered = []
     for v in values:
-
         if v and v not in seen:
             filtered.append(v)
             seen.add(v)
@@ -318,7 +473,14 @@ def _apply_transformers(field_name: str, raw_value: str) -> str:
     :return: The transformed value.
     """
     delimiter = FieldDelimiters[field_name].value
-    split_values = _split_multivalue_field(raw_value, delimiter)
+    split_values, skip_transforms = _split_multivalue_field(
+        field_name, raw_value, delimiter
+    )
+    # Values in some fields require no transforms, aside from trimming whitespace,
+    # which is handled by the `_split_multivalue_field` function.
+    # If `skip_transforms` is True, there should be only one trimmed value in the list.
+    if skip_transforms:
+        return split_values[0] if split_values else ""
     transformed_values = []
     for value in split_values:
         for transformer in TRANSFORMERS[field_name]:

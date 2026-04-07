@@ -68,6 +68,71 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "No linguistic content, English",
             ),  # "N/A" should be processed as "No linguistic content" and not split
         ]
+        self.test_director_values = [
+            (
+                "OLEG LITVAK, william heick, R.J. CUTLER, MARY ANN DOANE, john a.b.c. doe",
+                "Oleg Litvak, William Heick, R.J. Cutler, Mary Ann Doane, John A.B.C. Doe",
+            ),  # capitalization variations
+            (
+                "Diego de la Texera, JOHN VAN DER DOE",
+                "Diego de la Texera, John van der Doe",
+            ),  # particles kept lowercase
+            (
+                "Richard Ray Perez and Lorena Parlee",
+                "Richard Ray Perez, Lorena Parlee",
+            ),  # "and" delimiter
+            (
+                "Debra Chasnoff\rKim Klausner\rMargaret Lazarus",
+                "Debra Chasnoff, Kim Klausner, Margaret Lazarus",
+            ),  # \r delimiter
+            (
+                "Ray Taylor & Lewis D. Collins",
+                "Ray Taylor, Lewis D. Collins",
+            ),  # ampersand delimiter
+            (
+                "Ford Beebe ; John Rawlins",
+                "Ford Beebe, John Rawlins",
+            ),  # semicolon delimiter
+            (
+                "Monogram Productions, Inc. ; a King Brothers production",
+                "Monogram Productions, Inc. ; a King Brothers production",
+            ),  # multiple delimiters--keep as-is
+            ("n/a", "N/A"),  # special case, null value
+            ("N/A", "N/A"),  # special case, null value
+            ("N/a", "N/A"),  # special case, null value
+            ("No Director listed", "N/A"),  # special case, null value
+            ("null, NULL", "Unknown"),  # special case, null value
+            ("unknown, UNKNOWN, Unknown", "Unknown"),  # special case, null value
+            ("   ", "Unknown"),  # special case, empty value
+            (
+                "john director-doe",
+                "John Director-Doe",
+            ),  # special case, hyphenated surname
+            (
+                "Lew Landers (as Louis Friedlander)",
+                "Louis Friedlander",
+            ),  # credited name after parenthetical "as"
+            (
+                "JANE DIRECTOR AS STAGE NAME",
+                "Stage Name",
+            ),  # "as" delimiter, case-insensitive
+            (
+                "William Goodrich [i.e. Roscoe Arbuckle]",
+                "William Goodrich",
+            ),  # take name before bracketed i.e.
+            (
+                "Marcus aka Sid Marcus",
+                "Marcus",
+            ),  # take name before aka
+            (
+                "John Doe (aka John D)",
+                "John Doe",
+            ),  # take name before parenthetical aka
+            (
+                "Jane Doe, William Goodrich i.e. , Roscoe Arbuckle",
+                "Jane Doe, William Goodrich",
+            ),  # i.e. with space before comma does not split multivalue on that comma
+        ]
 
     def test_production_type_mapping(self):
         for input, expected in self.test_production_type_values:
@@ -79,4 +144,10 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
         for input, expected in self.test_language_values:
             with self.subTest(input=input, expected=expected):
                 new_value = _apply_transformers("Language", input)
+                self.assertEqual(new_value, expected)
+
+    def test_director_mapping(self):
+        for input, expected in self.test_director_values:
+            with self.subTest(input=input, expected=expected):
+                new_value = _apply_transformers("director", input)
                 self.assertEqual(new_value, expected)
