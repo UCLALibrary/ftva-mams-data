@@ -144,6 +144,18 @@ MAPPINGS = {
         "N/A": "No linguistic content",
         "NONE": "No linguistic content",
     },
+    "date": {
+        "UUUU": "Unknown",
+        "UUUU-UUUU": "Unknown",
+        "unknown": "Unknown",
+        "UNKNOWN": "Unknown",
+        "ND": "Unknown",
+        "N": "Unknown",
+        "nd": "Unknown",
+        "no date": "Unknown",
+        "?": "Unknown",
+        "n/a": "N/A",
+    },
     "director": {
         "NO DIRECTOR LISTED": "N/A",
         "N/A": "N/A",
@@ -158,6 +170,8 @@ class FieldDelimiters(StrEnum):
     production_type = "\r"
     Language = ", "
     director = ", "
+    release_broadcast_date = "\r"
+    record_date = "\r"
 
 
 def _trim_whitespace(value: str) -> str:
@@ -384,6 +398,198 @@ def _normalize_language_spelling(value: str) -> str:
         return value
 
 
+def _remove_brackets(value: str) -> str:
+    """Remove square brackets and parentheses from the provided value, if present."""
+    return re.sub(r"[\[\]\(\)]", "", value).strip()
+
+
+def _normalize_copyright_and_circa(value: str) -> str:
+    """Normalize various representations of "Copyright" and "Circa" in the provided value."""
+    # Copyright: Standardize to lowercase c followed immediately by year.
+    # c 1978, C1988, COPYRIGHT 2007 -> c1978, c1988, c2007
+    copyright_pattern = re.compile(r"c(?:opyright)?\.?\s*(\d{4})", re.IGNORECASE)
+    value = copyright_pattern.sub(r"c\1", value)
+
+    # Circa: Replace circa, ca., CA., CIRCA, c. with year?
+    # ca. 1919 -> 1919?; CIRCA 1970 -> 1970?
+    # c. 1910 -> 1910?
+    value = re.sub(
+        r"(?i)\b(?:circa|ca\.?|c\.)\s*(\d{4})\b", lambda m: f"{m.group(1)}?", value
+    )
+
+    # Exception: Convert circa date range to “or” format
+    # circa 1929-1930 -> 1929 or 1930
+    value = re.sub(r"(?i)circa\s+(\d{4})\s*[-–]\s*(\d{4})", r"\1 or \2", value)
+    return value.strip()
+
+
+def _convert_natural_language_date(value: str) -> str:
+    """Convert natural language date expressions to a standardized format, if possible."""
+    # Only process if value starts with a month name (not a number)
+    month_regex = (
+        r"^(January|February|March|April|May|June|July|August|September|October|November|December|"
+        r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b"
+    )
+    if not re.match(month_regex, value, re.IGNORECASE):
+        return value.strip()
+
+    month_map = {
+        "january": "01",
+        "jan": "01",
+        "february": "02",
+        "feb": "02",
+        "march": "03",
+        "mar": "03",
+        "april": "04",
+        "apr": "04",
+        "may": "05",
+        "june": "06",
+        "jun": "06",
+        "july": "07",
+        "jul": "07",
+        "august": "08",
+        "aug": "08",
+        "september": "09",
+        "sep": "09",
+        "sept": "09",
+        "october": "10",
+        "oct": "10",
+        "november": "11",
+        "nov": "11",
+        "december": "12",
+        "dec": "12",
+    }
+
+    def month_day_year_sub(m):
+        month_name = m.group(1).lower()
+        month = (
+            month_map[month_name]
+            if month_name in month_map
+            else month_map[month_name[:3]]
+        )
+        day = int(m.group(2))
+        year = m.group(3)
+        return f"{year}-{month}-{day:02d}"
+
+    value = re.sub(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December|"
+        r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(\d{1,2})\s*,?\s*(\d{4})\b",
+        month_day_year_sub,
+        value,
+        flags=re.IGNORECASE,
+    )
+
+    def month_year_sub(m):
+        month_name = m.group(1).lower()
+        month = (
+            month_map[month_name]
+            if month_name in month_map
+            else month_map[month_name[:3]]
+        )
+        year = m.group(2)
+        return f"{year}-{month}"
+
+    value = re.sub(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December|"
+        r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(\d{4})\b",
+        month_year_sub,
+        value,
+        flags=re.IGNORECASE,
+    )
+    return value.strip()
+
+
+def _normalize_date_format(value: str) -> str:
+    """Converts various date formats to a standardized YYYY-MM-DD or YYYY-MM format, if possible."""
+    # Strip whitespace before checking for normalized format
+    value_stripped = value.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value_stripped) or re.fullmatch(
+        r"\d{4}-\d{2}", value_stripped
+    ):
+        return value_stripped
+
+    # MM/DD/YYYY or MM-DD-YYYY -> YYYY-MM-DD
+    value = re.sub(
+        r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b",
+        lambda m: f"{m.group(3)}-{int(m.group(1)):02d}-{int(m.group(2)):02d}",
+        value,
+    )
+    # MM/YYYY or MM-YYYY -> YYYY-MM
+    value = re.sub(
+        r"\b(\d{1,2})[/-](\d{4})\b",
+        lambda m: f"{m.group(2)}-{int(m.group(1)):02d}",
+        value,
+    )
+    return value.strip()
+
+
+def _handle_partial_years(value: str) -> str:
+    """Normalize partial year formats to a consistent representation, if possible."""
+    # Two digits only: 19 -> 19--?
+    if value.isdigit() and len(value) == 2:
+        return value + "--?"
+    # Two digits + dash: 19- -> 19--
+    if re.match(r"^\d{2}-$", value):
+        return value[:2] + "--"
+    # Three digits: 195 -> 195-? (partial year)
+    if re.match(r"^\d{3}$", value):
+        return value + "-?"
+    # Three digits + dash: 195- -> 195-? (partial year)
+    if re.match(r"^\d{3}-$", value):
+        return value + "?"
+    # Decades: 1950s -> 195-
+    if re.match(r"^\d{3}0s$", value):
+        return value[:3] + "-"
+    # Two digits with ??: 19?? -> 19--?
+    if re.match(r"^\d{2}\?\?$", value):
+        return value[:2] + "--?"
+    return value
+
+
+def _handle_U_X_placeholders(value: str) -> str:
+    """Normalize U/X placeholders in dates to a consistent representation, if possible."""
+    # 19UU-UUUU or 19uu-uuuu or 19XX-XXXX -> 19--?
+    value = re.sub(r"(\d{2})[UuXx]{2}-[UuXx]{4}", r"\1--?", value)
+    # 19uu-1971 -> 19--?-1971
+    value = re.sub(r"(\d{2})[UuXx]{2}-(\d{4})", r"\1--?-\2", value)
+    # Double UU/uu/XX/xx: 19UU, 19uu, 19XX -> 19--?
+    value = re.sub(r"(\d{2})[UuXx]{2}", r"\1--?", value)
+    # Single U/u/X/x: 197u -> 197-
+    value = re.sub(r"(\d{3})[UuXx]", r"\1-", value)
+    return value
+
+
+def _normalize_date_ranges(value: str) -> str:
+    """Normalize date ranges to a consistent format, if possible."""
+    # Slash range: 1955/1956 -> 1955-1956
+    value = re.sub(r"(\d{4})/(\d{4})", r"\1-\2", value)
+    # Bracket range: [1975-76] -> 1975-1976
+    value = re.sub(
+        r"\[(\d{4})-(\d{2})\]",
+        lambda m: f"{m.group(1)}-{m.group(1)[:2]}{m.group(2)}",
+        value,
+    )
+    # Spaced dash: 1959 - 1963 -> 1959-1963
+    value = re.sub(r"(\d{4})\s*-\s*(\d{4})", r"\1-\2", value)
+    # Two-digit second year: Assume same century as first year: 1975-76 -> 1975-1976
+    # Only expand two-digit second years when they are unlikely to be months
+    # (e.g., 76 -> 1976). If the second group looks like a month (01-12), leave it alone.
+
+    def _expand_two_digit_year(m):
+        y1 = m.group(1)
+        y2 = m.group(2)
+        try:
+            n = int(y2)
+        except ValueError:
+            return m.group(0)
+        if 1 <= n <= 12:
+            return m.group(0)
+        return f"{y1}-{y1[:2]}{y2}"
+
+    value = re.sub(r"(\d{4})-(\d{2})\b", _expand_two_digit_year, value)
+    return value.strip()
+
+
 # These list out the transformers to apply for each target field.
 # We can reuse generic transformers, but apply them in different orders if need be.
 TRANSFORMERS = {
@@ -409,6 +615,28 @@ TRANSFORMERS = {
         _parse_credited_names,
         _standardize_director_name,
         lambda value: MAPPINGS["director"].get(value.upper(), value),
+    ],
+    "record_date": [
+        _trim_whitespace,
+        lambda value: MAPPINGS["date"].get(value, value),
+        _remove_brackets,
+        _convert_natural_language_date,
+        _normalize_copyright_and_circa,
+        _normalize_date_format,
+        _handle_partial_years,
+        _handle_U_X_placeholders,
+        _normalize_date_ranges,
+    ],
+    "release_broadcast_date": [
+        _trim_whitespace,
+        lambda value: MAPPINGS["date"].get(value, value),
+        _remove_brackets,
+        _convert_natural_language_date,
+        _normalize_copyright_and_circa,
+        _normalize_date_format,
+        _handle_partial_years,
+        _handle_U_X_placeholders,
+        _normalize_date_ranges,
     ],
 }
 
