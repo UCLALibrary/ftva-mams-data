@@ -247,12 +247,20 @@ def _standardize_name_token(raw: str, word_index: int, n_words: int) -> str:
         if _is_initials_token(chunk):
             out_chunks.append(_format_initials(chunk))
         elif (
-            n_words > 1
-            and 0 < word_index < n_words - 1
-            and len(hyphen_chunks) == 1
-            and chunk.lower() in DIRECTOR_NAME_PARTICLES
-        ):
+            n_words > 1  # only if more than one word in the name
+            and 0 < word_index < n_words - 1  # look at words between first and last
+            and len(hyphen_chunks) == 1  # only one chunk if no hyphens
+            and chunk.lower() in DIRECTOR_NAME_PARTICLES  # only if particle
+        ):  # special case: keep particles between first and last name lowercase
             out_chunks.append(chunk.lower())
+        # special case: return surnames like "MacDonald" and "LeRoy" as-is.
+        elif (
+            not chunk.isupper()  # not completely uppercase
+            and len(chunk) > 2  # must be at least 3 characters
+            # must have at least 2 uppercase letters
+            and sum(1 for c in chunk if c.isupper()) >= 2
+        ):
+            out_chunks.append(chunk)
         else:
             out_chunks.append(chunk.capitalize())
     return "-".join(out_chunks)
@@ -285,20 +293,20 @@ def _parse_credited_names(value: str) -> str:
     :return: Parsed credited names string.
     """
     # Remove square brackets and parentheses and lowercase the value
-    value = re.sub(r"[\[\]\(\)]", "", value.lower())
+    lower = re.sub(r"[\[\]\(\)]", "", value.lower())
 
-    if " as " in value:
-        parts = value.split(" as ")
+    if " as " in lower:
+        parts = lower.split(" as ")
         if len(parts) == 2:
             return parts[1].strip()
 
-    if "i.e." in value:
-        parts = value.split(" i.e. ")
+    if "i.e." in lower:
+        parts = lower.split(" i.e. ")
         if len(parts) == 2:
             return parts[0].strip()
 
-    if " aka " in value:
-        parts = value.split(" aka ")
+    if " aka " in lower:
+        parts = lower.split(" aka ")
         if len(parts) == 2:
             return parts[0].strip()
     return value

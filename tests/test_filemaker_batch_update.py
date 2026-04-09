@@ -132,6 +132,10 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "Jane Doe, William Goodrich i.e. , Roscoe Arbuckle",
                 "Jane Doe, William Goodrich",
             ),  # i.e. with space before comma does not split multivalue on that comma
+            (
+                "David MacDonald, Mervyn LeRoy, John O'Brien Doe, LeeRoy Jenkins",
+                "David MacDonald, Mervyn LeRoy, John O'Brien Doe, LeeRoy Jenkins",
+            ),  # special case: return names with internal capitalization as-is
         ]
 
     def test_production_type_mapping(self):
