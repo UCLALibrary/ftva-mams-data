@@ -177,10 +177,33 @@ def _process_input_data(
             if bib_records:
                 bib_record = bib_records[0]
             else:
-                logger.info(
-                    f"No Alma bib records found for inventory number '{inventory_number}' "
-                    f"on record {row['dl_record_id']}. Proceeding with DD and FM data only."
-                )
+                # If no Alma bib record is found, retry with suffixes "T", "M", and "R".
+                # NOTE: This is a shim to deal with inconsistencies with inv numbers across systems.
+                for suffix in ["T", "M", "R"]:
+                    logger.info(
+                        f"No Alma bib records found for inventory number '{inventory_number}' "
+                        f"on record {row['dl_record_id']}. Retrying with suffix '{suffix}'."
+                    )
+                    all_bib_records = alma_sru_client.search_by_call_number(
+                        inventory_number + suffix
+                    )
+                    bib_records = filter_by_inventory_number_and_library(
+                        all_bib_records, inventory_number + suffix
+                    )
+                    if bib_records:
+                        logger.info(
+                            "Found Alma bib record for "
+                            f"inventory number '{inventory_number + suffix}' "
+                            f"(note suffix '{suffix}') on record {row['dl_record_id']}. "
+                            "Proceeding with DD, FM, and Alma data."
+                        )
+                        bib_record = bib_records[0]
+                        break
+                if not bib_record:
+                    logger.warning(
+                        f"No Alma bib records found for inventory number '{inventory_number}' "
+                        f"on record {row['dl_record_id']}. Proceeding with DD and FM data only."
+                    )
             filemaker_record = filemaker_client.search_by_inventory_number(
                 inventory_number
             )[0]
