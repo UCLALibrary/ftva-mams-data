@@ -410,7 +410,8 @@ TRANSFORMERS = {
 
 def _normalize_multivalue_delimiters(value: str, delimiter: str) -> str:
     """Normalize the delimiters in the provided value to the provided delimiter."""
-    new_value = re.sub(FM_DELIMITER_PATTERN, delimiter, value)
+    # Case-insensitive to catch both " and " and " AND " delimiters
+    new_value = re.sub(FM_DELIMITER_PATTERN, delimiter, value, flags=re.IGNORECASE)
     if new_value != value:
         logger.debug(f"Normalized delimiters: {value!r} -> {new_value!r}")
     return new_value
