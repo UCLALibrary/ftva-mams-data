@@ -170,8 +170,8 @@ class FieldDelimiters(StrEnum):
     production_type = "\r"
     Language = ", "
     director = ", "
-    release_broadcast_date = "\r"
-    record_date = "\r"
+    release_broadcast_year = "; "
+    record_date = "; "
 
 
 def _trim_whitespace(value: str) -> str:
@@ -410,16 +410,16 @@ def _normalize_copyright_and_circa(value: str) -> str:
     copyright_pattern = re.compile(r"c(?:opyright)?\.?\s*(\d{4})", re.IGNORECASE)
     value = copyright_pattern.sub(r"c\1", value)
 
-    # Circa: Replace circa, ca., CA., CIRCA, c. with year?
-    # ca. 1919 -> 1919?; CIRCA 1970 -> 1970?
-    # c. 1910 -> 1910?
+    # Circa: Replace circa, ca., CA., CIRCA, c. with question mark after year
+    # Exception: Convert circa date range to “or” format first
+    # circa 1929-1930 -> 1929 or 1930
+    value = re.sub(r"(?i)circa\s+(\d{4})\s*[-–]\s*(\d{4})", r"\1 or \2", value)
+
+    # Circa: Replace single-year circa variations with question mark after year
+    # e.g. circa 1970 -> 1970?
     value = re.sub(
         r"(?i)\b(?:circa|ca\.?|c\.)\s*(\d{4})\b", lambda m: f"{m.group(1)}?", value
     )
-
-    # Exception: Convert circa date range to “or” format
-    # circa 1929-1930 -> 1929 or 1930
-    value = re.sub(r"(?i)circa\s+(\d{4})\s*[-–]\s*(\d{4})", r"\1 or \2", value)
     return value.strip()
 
 
@@ -627,7 +627,7 @@ TRANSFORMERS = {
         _handle_U_X_placeholders,
         _normalize_date_ranges,
     ],
-    "release_broadcast_date": [
+    "release_broadcast_year": [
         _trim_whitespace,
         lambda value: MAPPINGS["date"].get(value, value),
         _remove_brackets,
@@ -765,6 +765,9 @@ def _initialize_client(config: dict) -> FilemakerClient:
             timeout=240,
         )
         logger.info("Connected to Filemaker.")
+        print(
+            client._fms
+        )  # Log the internal FilemakerServer instance for debugging connection issues
         return client
     except FileMakerError as e:
         logger.error(f"Failed to connect to Filemaker: {e}")
@@ -840,7 +843,7 @@ def _process_record(
         if current_value == new_value:  # skip if no change
             continue
 
-        logger.debug(
+        logger.info(
             f"UPDATE field_name={field_name} "
             f"record_id={record_id} inventory_id={inventory_id} "
             f"from={current_value!r} to={(new_value or '')!r}"  # use `!r` so `\r` is visible in log
@@ -931,6 +934,7 @@ def main() -> None:
     args = _get_arguments()
     _configure_logging(dry_run=args.dry_run)
     config = _get_config(args.config_file)
+    logger.info(config)
 
     if args.dry_run:
         logger.info("DRY RUN: no changes will be written to Filemaker.")

@@ -185,6 +185,50 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "1. John A.B.C. Doe, Jane Star, LeeRoy Jenkins",
             ),  # composite test: multiple transformations
         ]
+        self.test_date_values = [
+            ("1974 ", "1974"),  # trailing whitespace
+            ("n/a", "N/A"),  # special case, known value
+            ("UUUU", "Unknown"),  # special case, known value
+            ("nd", "Unknown"),  # special case, known value
+            ("?", "Unknown"),  # special casem known value
+            ("[1992]", "1992"),  # brackets should be removed
+            ("(1992)", "1992"),  # parentheses should be removed
+            ("c 1939", "c1939"),  # normalize copyright format
+            ("COPYRIGHT 2007", "c2007"),
+            ("C1988", "c1988"),
+            ("c1978", "c1978"),
+            ("CIRCA 1970", "1970?"),  # normalize circa format
+            ("ca. 1950", "1950?"),
+            ("CA. 2020", "2020?"),
+            ("circa 1925", "1925?"),
+            ("circa 1920-1930", "1920 or 1930"),  # circa range format
+            ("January 1956", "1956-01"),  # convert natural language date
+            ("Feb 1967", "1967-02"),
+            ("Mar 24 1953", "1953-03-24"),
+            ("June 28, 1975", "1975-06-28"),
+            ("06/15/1980", "1980-06-15"),  # normalize date format
+            ("03-25-1990", "1990-03-25"),
+            ("04/1985", "1985-04"),
+            ("19", "19--?"),  # partial year with two digits
+            ("20-", "20--"),  # partial year with two digits and trailing hyphen
+            ("195-", "195-?"),  # partial year with three digits
+            ("1990s", "199-"),  # decade
+            ("19??", "19--?"),  # partial year with two digits and question marks
+            ("1946?", "1946?"),  # partial year with four digits and ?, no modification
+            ("195?", "195?"),  # partial year with three digits and ?, no modification
+            ("197u", "197-"),  # partial year with single u/x placeholder
+            ("20UU", "20--?"),  # partial year with two placeholders
+            ("19uu", "19--?"),
+            ("20XX", "20--?"),
+            ("19uu-1971", "19--?-1971"),  # handle partial year ranges with placeholders
+            ("19UU-UUUU", "19--?"),  # partial range, collapses to single indeterminate
+            ("1955/1956", "1955-1956"),  # handle various date range formats
+            ("[2011-13]", "2011-2013"),
+            ("1959 - 1963", "1959-1963"),
+            ("1975-76", "1975-1976"),
+            ("2015-03-12", "2015-03-12"),  # valid date, no transform needed
+            ("1939-11-28", "1939-11-28"),
+        ]
 
     def test_production_type_mapping(self):
         for input, expected in self.test_production_type_values:
@@ -202,4 +246,10 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
         for input, expected in self.test_director_values:
             with self.subTest(input=input, expected=expected):
                 new_value = _apply_transformers("director", input)
+                self.assertEqual(new_value, expected)
+
+    def test_date_mapping(self):
+        for input, expected in self.test_date_values:
+            with self.subTest(input=input, expected=expected):
+                new_value = _apply_transformers("release_broadcast_date", input)
                 self.assertEqual(new_value, expected)
