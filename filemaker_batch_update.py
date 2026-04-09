@@ -403,7 +403,8 @@ TRANSFORMERS = {
 def _normalize_multivalue_delimiters(value: str, delimiter: str) -> str:
     """Normalize the delimiters in the provided value to the provided delimiter."""
     new_value = re.sub(FM_DELIMITER_PATTERN, delimiter, value)
-    logger.debug(f"Normalized delimiters: {value!r} -> {new_value!r}")
+    if new_value != value:
+        logger.debug(f"Normalized delimiters: {value!r} -> {new_value!r}")
     return new_value
 
 
@@ -503,6 +504,7 @@ def _initialize_client(config: dict) -> FilemakerClient:
         client = FilemakerClient(
             user=config["filemaker"]["user"],
             password=config["filemaker"]["password"],
+            timeout=240,
         )
         logger.info("Connected to Filemaker.")
         return client
