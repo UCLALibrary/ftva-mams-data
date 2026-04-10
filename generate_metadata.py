@@ -14,6 +14,7 @@ from ftva_etl import (
 from ftva_etl.metadata.utils import filter_by_inventory_number_and_library
 from requests.exceptions import HTTPError
 from warnings import deprecated
+from pymarc import Record
 
 
 # Module-level logger used throughout this module.
@@ -139,6 +140,42 @@ def _initialize_clients(
     )
 
 
+def _get_alma_bib_record(
+    inv_no_stem: str,
+    alma_sru_client: AlmaSRUClient,
+) -> Record | None:
+    """Get the Alma bib record for the provided inventory number,
+    retrying with suffixes "T", "M", and "R" if no record is found without suffix.
+
+    :param inv_no_stem: The base inventory number to search for.
+    :param alma_sru_client: The AlmaSRUClient instance to use to get the bib record.
+    :return: Matching Alma bib record, or None if no record is found.
+    """
+    # Try no suffix first, then "T", "M", and "R".
+    # NOTE: The additional suffixes are a shim
+    # to deal with inconsistent inventory numbers across systems.
+    suffixes = ["", "T", "M", "R"]
+    inv_nos_to_check = [inv_no_stem + suffix for suffix in suffixes]
+    # There may not be any matches - if so, this is a "1-to-1" record,
+    # so we'll use only DD and FM data.
+    bib_record = None
+    for inv_no in inv_nos_to_check:
+        search_results = alma_sru_client.search_by_call_number(inv_no)
+        filtered_bib_records: list[Record] = filter_by_inventory_number_and_library(
+            search_results, inv_no
+        )
+        if filtered_bib_records:
+            # Take the first record that matches the inventory number and is from FTVA
+            bib_record = filtered_bib_records[0]
+            if inv_no != inv_no_stem:
+                logger.info(
+                    f"Inventory number '{inv_no_stem}' from DD "
+                    f"matched to '{inv_no}' in Alma."
+                )
+            break
+    return bib_record
+
+
 def _process_input_data(
     input_data: list[dict],
     alma_sru_client: AlmaSRUClient,
@@ -163,24 +200,15 @@ def _process_input_data(
                 row["dl_record_id"]
             )
             inventory_number = digital_data_record["inventory_number"]
-            # First get all results from Alma matching the inventory number
-            # There may not be any matches - if so, this is a "1-to-1" record,
-            # so we'll use only DD and FM data.
-            # Initialize bib_record variable first so we can check for it later.
-            bib_record = None
-            all_bib_records = alma_sru_client.search_by_call_number(inventory_number)
-            # Take the first record that matches the inventory number and is from FTVA library.
-            # This prevents false matches from other libraries.
-            bib_records = filter_by_inventory_number_and_library(
-                all_bib_records, inventory_number
-            )
-            if bib_records:
-                bib_record = bib_records[0]
-            else:
-                logger.info(
-                    f"No Alma bib records found for inventory number '{inventory_number}' "
+
+            bib_record = _get_alma_bib_record(inventory_number, alma_sru_client)
+            if not bib_record:
+                logger.warning(
+                    f"No Alma bib record found for inventory number '{inventory_number}' "
                     f"on record {row['dl_record_id']}. Proceeding with DD and FM data only."
                 )
+                continue
+
             filemaker_record = filemaker_client.search_by_inventory_number(
                 inventory_number
             )[0]
