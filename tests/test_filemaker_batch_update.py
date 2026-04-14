@@ -62,6 +62,7 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ("Portuguese for Brazil", "Portuguese"),  # special case, known value
             ("?", "Undetermined"),  # special case, known value
             ("Russian Intertitles", "Russian"),  # "Intertitles" should be removed
+            ("N/A", "No linguistic content"),  # special case, known value
         ]
 
     def test_production_type_mapping(self):

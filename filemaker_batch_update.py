@@ -277,6 +277,9 @@ def _split_multivalue_field(value: str, delimiter: str) -> list[str]:
     """Split a multi-value field into a list of values, based on the provided delimiter.
     Also trims whitespace from each value and filters out any empty values."""
     if delimiter == FieldDelimiters["Language"].value:
+        # First, check for the known value "N/A", which should not be split
+        if value.strip() == "N/A":
+            return [value.strip()]
         # Normalize all possible delimiters to comma for language
         value = re.sub(r"\s*(?:[,;/|]|\band\b|&|\r)\s*", ", ", value)
         logger.debug(f"Normalized delimiters to comma: {value!r}")
