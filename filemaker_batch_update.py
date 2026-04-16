@@ -2,6 +2,8 @@ import tomllib
 import logging
 import argparse
 import re
+import dateparser
+from edtf import parse_edtf, EDTFParseException
 from enum import StrEnum
 from string import capwords
 from strsimpy.normalized_levenshtein import NormalizedLevenshtein
@@ -400,7 +402,11 @@ def _normalize_language_spelling(value: str) -> str:
 
 def _remove_brackets(value: str) -> str:
     """Remove square brackets and parentheses from the provided value, if present."""
-    return re.sub(r"[\[\]\(\)]", "", value).strip()
+    if not value:
+        return ""
+    v = value.replace("[", "").replace("]", "")
+    v = v.replace("(", "").replace(")", "")
+    return v.strip()
 
 
 def _normalize_copyright_and_circa(value: str) -> str:
@@ -423,104 +429,105 @@ def _normalize_copyright_and_circa(value: str) -> str:
     return value.strip()
 
 
-def _convert_natural_language_date(value: str) -> str:
-    """Convert natural language date expressions to a standardized format, if possible."""
-    # Only process if value starts with a month name (not a number)
+def _normalize_date(value: str) -> str:
+    """Normalize dates using EDTF (for uncertainty/unknown digits/ranges) with a
+    fallback to dateparser for natural-language dates.
+    """
+    v = (value or "").strip()
+    # If no value, or if value doesn't contain any digits, return early
+    if not v or not re.search(r"\d", v):
+        return v
+
+    # Apply partial-year and placeholder/range normalizers first so we don't
+    # accidentally let a short numeric string be parsed as a day/month.
+    # Note: run partial-year handling before replacing U/X so we can distinguish
+    # explicit trailing hyphens from ones created by placeholder replacement.
+    v = _handle_partial_years(v)
+    v = _handle_U_X_placeholders(v)
+    v = _normalize_date_ranges(v)
+
+    # If the value begins with a month name, prefer `dateparser` to produce
+    # YYYY-MM or YYYY-MM-DD (avoid regex-heavy transformations here).
     month_regex = (
         r"^(January|February|March|April|May|June|July|August|September|October|November|December|"
         r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b"
     )
-    if not re.match(month_regex, value, re.IGNORECASE):
-        return value.strip()
+    if re.match(month_regex, v, re.IGNORECASE):
+        try:
+            # Use `PREFER_DAY_OF_MONTH: 'first'` so ambiguous month+year
+            # expressions (e.g. "Jan 1956") produce a stable canonical
+            # representation. We prefer YYYY-MM when a day is not present,
+            # but when a day is present we want a full YYYY-MM-DD. This
+            # setting ensures `dateparser` chooses the first day of the
+            # month rather than attempting to infer the day.
+            dt = dateparser.parse(v, settings={"PREFER_DAY_OF_MONTH": "first"})
+            if dt:
+                # If original contains an explicit day number, return full date
+                if re.search(r"\b\d{1,2}\b", v):
+                    v = dt.date().isoformat()
+                else:
+                    v = f"{dt.year:04d}-{dt.month:02d}"
+        except (ValueError, TypeError, OverflowError):
+            pass
 
-    month_map = {
-        "january": "01",
-        "jan": "01",
-        "february": "02",
-        "feb": "02",
-        "march": "03",
-        "mar": "03",
-        "april": "04",
-        "apr": "04",
-        "may": "05",
-        "june": "06",
-        "jun": "06",
-        "july": "07",
-        "jul": "07",
-        "august": "08",
-        "aug": "08",
-        "september": "09",
-        "sep": "09",
-        "sept": "09",
-        "october": "10",
-        "oct": "10",
-        "november": "11",
-        "nov": "11",
-        "december": "12",
-        "dec": "12",
-    }
-
-    def month_day_year_sub(m):
-        month_name = m.group(1).lower()
-        month = (
-            month_map[month_name]
-            if month_name in month_map
-            else month_map[month_name[:3]]
-        )
-        day = int(m.group(2))
-        year = m.group(3)
-        return f"{year}-{month}-{day:02d}"
-
-    value = re.sub(
-        r"\b(January|February|March|April|May|June|July|August|September|October|November|December|"
-        r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(\d{1,2})\s*,?\s*(\d{4})\b",
-        month_day_year_sub,
-        value,
-        flags=re.IGNORECASE,
-    )
-
-    def month_year_sub(m):
-        month_name = m.group(1).lower()
-        month = (
-            month_map[month_name]
-            if month_name in month_map
-            else month_map[month_name[:3]]
-        )
-        year = m.group(2)
-        return f"{year}-{month}"
-
-    value = re.sub(
-        r"\b(January|February|March|April|May|June|July|August|September|October|November|December|"
-        r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(\d{4})\b",
-        month_year_sub,
-        value,
-        flags=re.IGNORECASE,
-    )
-    return value.strip()
-
-
-def _normalize_date_format(value: str) -> str:
-    """Converts various date formats to a standardized YYYY-MM-DD or YYYY-MM format, if possible."""
-    # Strip whitespace before checking for normalized format
-    value_stripped = value.strip()
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value_stripped) or re.fullmatch(
-        r"\d{4}-\d{2}", value_stripped
-    ):
-        return value_stripped
-
+    # Normalize common numeric date formats using `dateparser` where possible
     # MM/DD/YYYY or MM-DD-YYYY -> YYYY-MM-DD
-    value = re.sub(
-        r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b",
-        lambda m: f"{m.group(3)}-{int(m.group(1)):02d}-{int(m.group(2)):02d}",
-        value,
-    )
-    # MM/YYYY or MM-YYYY -> YYYY-MM
-    value = re.sub(
-        r"\b(\d{1,2})[/-](\d{4})\b",
-        lambda m: f"{m.group(2)}-{int(m.group(1)):02d}",
-        value,
-    )
-    return value.strip()
+    if re.search(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", v):
+        try:
+            # For explicit numeric dates, set `PREFER_DAY_OF_MONTH` to keep
+            # parsing deterministic (choose first-of-month when needed).
+            dt = dateparser.parse(v, settings={"PREFER_DAY_OF_MONTH": "first"})
+            if dt:
+                return dt.date().isoformat()
+        except (ValueError, TypeError, OverflowError):
+            pass
+
+    # MM/YYYY or MM-YYYY -> YYYY-MM (preserve month precision)
+    m = re.search(r"\b(\d{1,2})[/-](\d{4})\b", v)
+    if m:
+        month = int(m.group(1))
+        year = int(m.group(2))
+        if 1 <= month <= 12:
+            return f"{year:04d}-{month:02d}"
+
+    # Preserve copyright-like values such as 'c1978' (should not be parsed into a date)
+    if re.fullmatch(r"c\d{4}\??", v, flags=re.IGNORECASE):
+        return v
+
+    # If we already have a normalized YYYY-MM or YYYY-MM-DD or range, return it
+    if re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", v) or re.fullmatch(r"\d{4}-\d{4}", v):
+        return v
+
+    # Try EDTF parsing/validation next (handles u-placements, ? and ranges)
+    v_edtf = re.sub(r"[UuXx]", "u", v)
+    try:
+        parsed = parse_edtf(v_edtf)
+        if parsed:
+            return str(parsed)
+    except EDTFParseException:
+        pass
+
+    # As a last resort, attempt natural-language parsing but only when the
+    # input looks like it contains explicit day or month text (avoid interpreting
+    # short numeric strings as days).
+    try:
+        # Only call dateparser when the transformed value looks like a
+        # natural-language date (avoid interpreting short or placeholder
+        # strings as current-month dates). Use `v` (the transformed value).
+        if re.search(r"[A-Za-z]|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", v):
+            # Make deterministic day selection (first) to avoid
+            # unpredictable results when only month/year is present.
+            dt = dateparser.parse(v, settings={"PREFER_DAY_OF_MONTH": "first"})
+            if dt:
+                # If transformed value had a month name with no day, prefer YYYY-MM
+                if re.search(r"[A-Za-z]", v) and not re.search(r"\b\d{1,2}\b", v):
+                    return f"{dt.year:04d}-{dt.month:02d}"
+                return dt.date().isoformat()
+    except (ValueError, TypeError, OverflowError):
+        pass
+
+    # If nothing matched, return the (possibly transformed) value
+    return v
 
 
 def _handle_partial_years(value: str) -> str:
@@ -575,19 +582,24 @@ def _normalize_date_ranges(value: str) -> str:
     # Only expand two-digit second years when they are unlikely to be months
     # (e.g., 76 -> 1976). If the second group looks like a month (01-12), leave it alone.
 
-    def _expand_two_digit_year(m):
-        y1 = m.group(1)
-        y2 = m.group(2)
-        try:
-            n = int(y2)
-        except ValueError:
-            return m.group(0)
-        if 1 <= n <= 12:
-            return m.group(0)
-        return f"{y1}-{y1[:2]}{y2}"
-
     value = re.sub(r"(\d{4})-(\d{2})\b", _expand_two_digit_year, value)
     return value.strip()
+
+
+def _expand_two_digit_year(m: re.Match) -> str:
+    """Helper function for _normalize_date_ranges to expand two-digit
+    second years in date ranges."""
+    # Only expand if the second group is not a valid month (01-12);
+    # otherwise, return original string.
+    y1 = m.group(1)
+    y2 = m.group(2)
+    try:
+        n = int(y2)
+    except ValueError:
+        return m.group(0)
+    if 1 <= n <= 12:
+        return m.group(0)
+    return f"{y1}-{y1[:2]}{y2}"
 
 
 # These list out the transformers to apply for each target field.
@@ -620,23 +632,15 @@ TRANSFORMERS = {
         _trim_whitespace,
         lambda value: MAPPINGS["date"].get(value, value),
         _remove_brackets,
-        _convert_natural_language_date,
         _normalize_copyright_and_circa,
-        _normalize_date_format,
-        _handle_partial_years,
-        _handle_U_X_placeholders,
-        _normalize_date_ranges,
+        _normalize_date,
     ],
     "release_broadcast_year": [
         _trim_whitespace,
         lambda value: MAPPINGS["date"].get(value, value),
         _remove_brackets,
-        _convert_natural_language_date,
         _normalize_copyright_and_circa,
-        _normalize_date_format,
-        _handle_partial_years,
-        _handle_U_X_placeholders,
-        _normalize_date_ranges,
+        _normalize_date,
     ],
 }
 
@@ -765,9 +769,6 @@ def _initialize_client(config: dict) -> FilemakerClient:
             timeout=240,
         )
         logger.info("Connected to Filemaker.")
-        print(
-            client._fms
-        )  # Log the internal FilemakerServer instance for debugging connection issues
         return client
     except FileMakerError as e:
         logger.error(f"Failed to connect to Filemaker: {e}")

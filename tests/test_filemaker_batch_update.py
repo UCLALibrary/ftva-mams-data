@@ -251,5 +251,5 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
     def test_date_mapping(self):
         for input, expected in self.test_date_values:
             with self.subTest(input=input, expected=expected):
-                new_value = _apply_transformers("release_broadcast_date", input)
+                new_value = _apply_transformers("record_date", input)
                 self.assertEqual(new_value, expected)

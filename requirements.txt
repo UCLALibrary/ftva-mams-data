@@ -10,3 +10,6 @@ strsimpy==0.2.1
 git+https://github.com/UCLALibrary/alma-api-client
 # For retrying requests to Filemaker API
 retry==0.9.2
+# For date parsing
+edtf==5.0.1
+dateparser==1.4.0
