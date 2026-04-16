@@ -115,7 +115,7 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             (
                 "JANE DIRECTOR AS STAGE NAME",
                 "Stage Name",
-            ),  # credited name after parenthetical "as"
+            ),  # credited name after case-insensitive "as"
             (
                 "William Goodrich [i.e. Roscoe Arbuckle]",
                 "William Goodrich",
@@ -132,6 +132,10 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "Jane Doe, William Goodrich i.e. , Roscoe Arbuckle",
                 "Jane Doe, William Goodrich",
             ),  # `i.e.` with space before comma should not split multivalue on that comma
+            (
+                "André De Toth (as Andre deToth)",
+                "Andre deToth",
+            ),  # name following "as" keeps casing
             (
                 "David MacDonald, Mervyn LeRoy, John O'Brien Doe, LeeRoy Jenkins",
                 "David MacDonald, Mervyn LeRoy, John O'Brien Doe, LeeRoy Jenkins",
@@ -152,6 +156,14 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 ", Wally Bulloch",
                 "Wally Bulloch",
             ),  # bad leading delimiter should not yield empty values
+            (
+                "Mashuq M Deen, Dawn D Deason",
+                "Mashuq M. Deen, Dawn D. Deason",
+            ),  # single initials should get trailing dot
+            (
+                "Alex Alferov c/o All Media",
+                "Alex Alferov c/o All Media",
+            ),  # special token "c/o" should be lowercase
         ]
 
     def test_production_type_mapping(self):

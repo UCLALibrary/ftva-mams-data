@@ -19,36 +19,6 @@ logger = logging.getLogger(Path(__file__).stem)
 # These are delimiter variations used in Filemaker multi-value fields
 FM_DELIMITER_PATTERN = r"\s*(?:[,;/|]|\band\b|&|\r)\s*"
 
-DIRECTOR_NAME_PARTICLES = (
-    "de",
-    "la",
-    "le",
-    "du",
-    "des",
-    "van",
-    "von",
-    "ver",
-    "ten",
-    "ter",
-    "den",
-    "der",
-    "da",
-    "di",
-    "del",
-    "della",
-    "delle",
-    "degli",
-    "dell",
-    "dos",
-    "das",
-    "do",
-    "el",
-    "al",
-    "los",
-    "las",
-    "y",
-)
-
 
 # --------------------
 # Helper functions
@@ -262,9 +232,13 @@ def _standardize_director_name(name: str) -> str:
             name = name.replace(chunk, capwords(chunk))
 
     # Handle capitalization of initials.
+    formatted_chunks = []
     for chunk in name.split():
         if _is_initials_chunk(chunk):
-            name = name.replace(chunk, _format_initials(chunk))
+            formatted_chunks.append(_format_initials(chunk))
+            continue
+        formatted_chunks.append(chunk)
+    name = " ".join(formatted_chunks)
 
     # Address capitalization issue with nicknames,
     # e.g. prevent output of "Rosco 'fatty' Arbuckle",
@@ -313,23 +287,32 @@ def _parse_credited_names(value: str) -> str:
     :param value: Raw value string.
     :return: Parsed credited names string.
     """
-    # Remove square brackets and parentheses and lowercase the value
-    lower = re.sub(r"[\[\]\(\)]", "", value.lower())
+    # Use name following "as", accounting for possible parens or brackets
+    match_as = re.search(
+        r"(?:\(|\[)?"  # non-capturing group for possible opening paren or bracket
+        r"\bas\b\s*([^\)\]]+)"  # capture name after "as" (excluding closing paren or bracket)
+        r"(?:\)|\])?",  # non-capturing group for possible closing paren or bracket
+        value,
+        re.IGNORECASE,
+    )
+    if match_as:
+        name = match_as.group(1).strip()
+        if name:
+            return name
 
-    if " as " in lower:
-        parts = lower.split(" as ")
-        if len(parts) == 2:
-            return parts[1].strip()
+    # Use name before "i.e." or "aka", accounting for possible parens or brackets
+    match_ie_aka = re.search(
+        r"(.*?)\s+"  # capture group for name, follwed by 1 or more spaces
+        r"(?:\(|\[)?"  # non-capturing group for possible opening paren or bracket
+        r"(?:i\.e\.|aka)",  # non-capturing group for "i.e." or "aka"
+        value,
+        re.IGNORECASE,
+    )
+    if match_ie_aka:
+        name = match_ie_aka.group(1).strip()
+        if name:
+            return name
 
-    if "i.e." in lower:
-        parts = lower.split(" i.e. ")
-        if len(parts) == 2:
-            return parts[0].strip()
-
-    if " aka " in lower:
-        parts = lower.split(" aka ")
-        if len(parts) == 2:
-            return parts[0].strip()
     return value
 
 
@@ -461,20 +444,23 @@ def _split_multivalue_field(
         # Normalize FM delimiters to comma for language
         value = _normalize_multivalue_delimiters(value, delimiter)
     elif field_name == "director":
-        exclusions = ["N/A"]  # Slash in N/A is not a delimiter
-        if value.upper() in exclusions:
-            # Exclusions should not have delimiters changed, but should still be transformed
+        # If value contains "n/a" or "c/o" (case-insensitive),
+        # return value as-is, but do not skip transformers.
+        if re.search(r"(n/a|c/o)", value, flags=re.IGNORECASE):
             return [value], False
+
         # Normalize "i.e.," to "i.e." before delimiter normalization
         # so that commas in "i.e.," are not counted as delimiters
         value = re.sub(r"i\.\s*e\.\s*,", "i.e.", value, flags=re.IGNORECASE)
+
         # Handle cases where right parenthesis `)` is followed by an uppercase letter,
         # inserting a comma and space between them.
         value = re.sub(r"\)[A-Z]", lambda m: f"{m[0][:1]}, {m[0][1:]}", value)
+
+        # If multiple delimiter types are found,
+        # return value as-is and skip transformers.
         matches = re.findall(FM_DELIMITER_PATTERN, value)
         if len(set(matches)) > 1:
-            # If multiple delimiter types are found,
-            # return value as-is and skip transformers.
             return [value], True
         value = _normalize_multivalue_delimiters(value, delimiter)
     # Default to normalizing semicolons with delimiter
@@ -577,12 +563,13 @@ def _get_all_records(fm_client: FilemakerClient, page_size: int) -> Iterator[Rec
             offset=offset,
             limit=page_size,
         )
-        logger.info(f"Retrieved records {offset} to {offset + len(records) - 1}...")
 
-        # After final page reached, keep checking for records until iterator is exhausted
+        # Empty records list indicates end of pagination.
         if not records:
+            logger.info("Pagination complete. All records retrieved.")
             return
 
+        logger.info(f"Retrieved records {offset} to {offset + len(records) - 1}...")
         yield from records
         offset += page_size
 
