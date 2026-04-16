@@ -74,9 +74,9 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "Oleg Litvak, William Heick, R.J. Cutler, Mary Ann Doane, John A.B.C. Doe",
             ),  # capitalization variations
             (
-                "Diego de la Texera, JOHN VAN DER DOE",
-                "Diego de la Texera, John van der Doe",
-            ),  # particles kept lowercase
+                "Diego de la Texera, John Van Der Doe",
+                "Diego de la Texera, John Van Der Doe",
+            ),  # Mixed-case remains as-is
             (
                 "Richard Ray Perez and Lorena Parlee",
                 "Richard Ray Perez, Lorena Parlee",
@@ -97,17 +97,17 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "Monogram Productions, Inc. ; a King Brothers production",
                 "Monogram Productions, Inc. ; a King Brothers production",
             ),  # multiple delimiters--keep as-is
-            ("n/a", "N/A"),  # special case, null value
-            ("N/A", "N/A"),  # special case, null value
-            ("N/a", "N/A"),  # special case, null value
-            ("No Director listed", "N/A"),  # special case, null value
-            ("null, NULL", "Unknown"),  # special case, null value
-            ("unknown, UNKNOWN, Unknown", "Unknown"),  # special case, null value
-            ("   ", "Unknown"),  # special case, empty value
+            ("n/a", "N/A"),  # testing null value mapping
+            ("N/A", "N/A"),  # testing null value mapping
+            ("N/a", "N/A"),  # testing null value mapping
+            ("No Director listed", "N/A"),  # testing null value mapping
+            ("null, NULL", "Unknown"),  # testing null value mapping
+            ("unknown, UNKNOWN, Unknown", "Unknown"),  # testing null value mapping
+            ("   ", "Unknown"),  # empty value
             (
                 "john director-doe",
                 "John Director-Doe",
-            ),  # special case, hyphenated surname
+            ),  # hyphenated surname
             (
                 "Lew Landers (as Louis Friedlander)",
                 "Louis Friedlander",
@@ -115,7 +115,7 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             (
                 "JANE DIRECTOR AS STAGE NAME",
                 "Stage Name",
-            ),  # "as" delimiter, case-insensitive
+            ),  # credited name after parenthetical "as"
             (
                 "William Goodrich [i.e. Roscoe Arbuckle]",
                 "William Goodrich",
@@ -131,11 +131,27 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             (
                 "Jane Doe, William Goodrich i.e. , Roscoe Arbuckle",
                 "Jane Doe, William Goodrich",
-            ),  # i.e. with space before comma does not split multivalue on that comma
+            ),  # `i.e.` with space before comma should not split multivalue on that comma
             (
                 "David MacDonald, Mervyn LeRoy, John O'Brien Doe, LeeRoy Jenkins",
                 "David MacDonald, Mervyn LeRoy, John O'Brien Doe, LeeRoy Jenkins",
-            ),  # special case: return names with internal capitalization as-is
+            ),  # return names with internal capitalization as-is
+            (
+                "Ub Iwerks (uncredited)Shamus Culhane(co-director)",
+                "Ub Iwerks (uncredited), Shamus Culhane(co-director)",
+            ),  # insert `, ` between right parenthesis and uppercase letter
+            (
+                "1.Brad Bird\r2. Sam Raimi\r3.Jared Hess\r4. Adam Mckay",
+                "1. Brad Bird, 2. Sam Raimi, 3. Jared Hess, 4. Adam Mckay",
+            ),  # capitalize numbered names
+            (
+                "Richard Gerdau ;",
+                "Richard Gerdau",
+            ),  # bad trailing delimiter should not yield empty values
+            (
+                ", Wally Bulloch",
+                "Wally Bulloch",
+            ),  # bad leading delimiter should not yield empty values
         ]
 
     def test_production_type_mapping(self):

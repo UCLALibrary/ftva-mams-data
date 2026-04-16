@@ -224,61 +224,82 @@ def _make_capitalized(value: str) -> str:
     return capwords(value)
 
 
-def _is_initials_token(token: str) -> bool:
-    """True if token is only single-letter initials separated by dots (e.g. A.B. or c.d.e.)."""
-    compact = token.replace(" ", "")
-    if not compact or not all(c.isalpha() or c == "." for c in compact):
+def _is_initials_chunk(chunk: str) -> bool:
+    """True if the chunk is only single-letter initials separated by dots (e.g. A.B. or c.d.e.).
+
+    :param chunk: The chunk to check.
+    :return: True if the chunk is only single-letter initials separated by dots, False otherwise.
+    """
+    # Must be a non-empty string and only contain letters or dots
+    if not chunk or not all(c.isalpha() or c == "." for c in chunk):
         return False
-    segments = [s for s in compact.split(".") if s]
+    # Split on dots and check that each segment is a single letter
+    segments = [s for s in chunk.split(".") if s]
+    # Must be at least one segment and each segment must be a single letter
     return bool(segments) and all(len(s) == 1 and s.isalpha() for s in segments)
 
 
-def _format_initials(token: str) -> str:
-    """Normalize an initials token to the form A.B.C."""
-    letters = [c for c in token if c.isalpha()]
-    return ".".join(c.upper() for c in letters) + "."
+def _format_initials(chunk: str) -> str:
+    """Format an initials chunk to all-uppercase, e.g. a.b.c. -> A.B.C.
 
-
-def _standardize_name_token(raw: str, word_index: int, n_words: int) -> str:
-    """Apply per-token rules inside one whitespace-delimited word (hyphens preserved)."""
-    hyphen_chunks = raw.split("-")
-    out_chunks = []
-    for chunk in hyphen_chunks:
-        if _is_initials_token(chunk):
-            out_chunks.append(_format_initials(chunk))
-        elif (
-            n_words > 1  # only if more than one word in the name
-            and 0 < word_index < n_words - 1  # look at words between first and last
-            and len(hyphen_chunks) == 1  # only one chunk if no hyphens
-            and chunk.lower() in DIRECTOR_NAME_PARTICLES  # only if particle
-        ):  # special case: keep particles between first and last name lowercase
-            out_chunks.append(chunk.lower())
-        # special case: return surnames like "MacDonald" and "LeRoy" as-is.
-        elif (
-            not chunk.isupper()  # not completely uppercase
-            and len(chunk) > 2  # must be at least 3 characters
-            # must have at least 2 uppercase letters
-            and sum(1 for c in chunk if c.isupper()) >= 2
-        ):
-            out_chunks.append(chunk)
-        else:
-            out_chunks.append(chunk.capitalize())
-    return "-".join(out_chunks)
+    :param chunk: The chunk to format.
+    :return: The formatted initials chunk.
+    """
+    letters = [c for c in chunk if c.isalpha()]
+    return ".".join(c.upper() for c in letters) + "."  # add trailing dot
 
 
 def _standardize_director_name(name: str) -> str:
-    """Return a standardized format for director names, according to specs:
+    """Return a standardized form for director names, based on specs.
 
-    - Initials stay uppercase with dots between letters (e.g. A.B., C.D.E.).
-    - Common particles between first and last name stay lowercase (e.g. de la, van der).
-    - All other word parts use simple title case.
-
-    :param name: Raw name string.
-    :return: Standardized name string.
+    :param name: Raw input name string.
+    :return: Standardized output name string.
     """
-    words = name.split()
-    n = len(words)
-    return " ".join(_standardize_name_token(w, i, n) for i, w in enumerate(words))
+    # Apply capwords to fully uppercased or fully lowercased names,
+    # handling proper casing of hyphenated chunks.
+    if name.isupper() or name.islower():
+        for chunk in name.split("-"):
+            name = name.replace(chunk, capwords(chunk))
+
+    # Handle capitalization of initials.
+    for chunk in name.split():
+        if _is_initials_chunk(chunk):
+            name = name.replace(chunk, _format_initials(chunk))
+
+    # Address capitalization issue with nicknames,
+    # e.g. prevent output of "Rosco 'fatty' Arbuckle",
+    # due to `capwords` interpreting quote as first letter in nickname.
+    # NOTE: Output nicknames all wrapped in double-quotes.
+    name = re.sub(r"[\'\"](.*)[\'\"]", lambda m: f'"{capwords(m.group(1))}"', name)
+
+    # Roman numeral regex adapted from @https://stackoverflow.com/a/267405.
+    # It looks for numerals I through IX in a case-insensitive manner,
+    # (but not just X, to avoid matching e.g. "Malcolm X"),
+    # asserting the numerals have a word boundary before them,
+    # and are at the end of the string.
+    name = re.sub(
+        r"\b(?=[XVI])(IX|IV|V?I{0,3})$",
+        lambda m: m.group(0).upper(),
+        name,
+        flags=re.IGNORECASE,
+    )
+
+    # Special token (i.e. substring) "c/o" should be kept as-is, case-insensitive.
+    # Regex looks for "c/o" with word boundaries on either side in a case-insensitive manner.
+    name = re.sub(r"\bc/o\b", "c/o", name, flags=re.IGNORECASE)
+
+    # Handle issue with capitalizing numbered names, e.g. `1.brad Bird` -> `1. Brad Bird`.
+    # Regex looks for 1 or more digits followed by a dot,
+    # followed by 0 or more spaces, followed by any characters.
+    # The first group is the digits and dot, the second group is the rest of the string.
+    # We want to make sure the second group is capitalized correctly,
+    # and normalize the space between the groups.
+    name = re.sub(
+        r"(\d+\.)\s*(.+)",
+        lambda m: f"{m.group(1)} {capwords(m.group(2))}",
+        name,
+    )
+    return name
 
 
 def _parse_credited_names(value: str) -> str:
@@ -442,11 +463,14 @@ def _split_multivalue_field(
     elif field_name == "director":
         exclusions = ["N/A"]  # Slash in N/A is not a delimiter
         if value.upper() in exclusions:
-            # Exclusions should not have delimiters changes, but should still be transformed
+            # Exclusions should not have delimiters changed, but should still be transformed
             return [value], False
         # Normalize "i.e.," to "i.e." before delimiter normalization
         # so that commas in "i.e.," are not counted as delimiters
         value = re.sub(r"i\.\s*e\.\s*,", "i.e.", value, flags=re.IGNORECASE)
+        # Handle cases where right parenthesis `)` is followed by an uppercase letter,
+        # inserting a comma and space between them.
+        value = re.sub(r"\)[A-Z]", lambda m: f"{m[0][:1]}, {m[0][1:]}", value)
         matches = re.findall(FM_DELIMITER_PATTERN, value)
         if len(set(matches)) > 1:
             # If multiple delimiter types are found,
@@ -456,7 +480,8 @@ def _split_multivalue_field(
     # Default to normalizing semicolons with delimiter
     else:
         value = value.replace(";", delimiter)
-    return [v.strip() for v in value.split(delimiter)], False
+    # Use list(filter(None, ...)) to filter out any empty values from the split list.
+    return [v.strip() for v in list(filter(None, value.split(delimiter)))], False
 
 
 def _rejoin_multivalue_field(values: list[str], delimiter: str) -> str:
