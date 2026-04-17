@@ -441,6 +441,11 @@ def _split_multivalue_field(
 
     # Handle special cases
     if field_name == "Language":
+        if "N/A" in value:
+            logger.debug(
+                "Found known value 'N/A' in language field; replacing with 'NONE'."
+            )
+            value = value.replace("N/A", "NONE")
         # Normalize FM delimiters to comma for language
         value = _normalize_multivalue_delimiters(value, delimiter)
     elif field_name == "director":
