@@ -231,15 +231,6 @@ def _standardize_director_name(name: str) -> str:
         for chunk in name.split("-"):
             name = name.replace(chunk, capwords(chunk))
 
-    # Handle capitalization of initials.
-    formatted_chunks = []
-    for chunk in name.split():
-        if _is_initials_chunk(chunk):
-            formatted_chunks.append(_format_initials(chunk))
-            continue
-        formatted_chunks.append(chunk)
-    name = " ".join(formatted_chunks)
-
     # Address capitalization issue with nicknames,
     # e.g. prevent output of "Rosco 'fatty' Arbuckle",
     # due to `capwords` interpreting quote as first letter in nickname.
@@ -273,6 +264,15 @@ def _standardize_director_name(name: str) -> str:
         lambda m: f"{m.group(1)} {capwords(m.group(2))}",
         name,
     )
+
+    # Handle capitalization of initials after other transformations are applied.
+    formatted_chunks = []
+    for chunk in name.split():
+        if _is_initials_chunk(chunk):
+            formatted_chunks.append(_format_initials(chunk))
+            continue
+        formatted_chunks.append(chunk)
+    name = " ".join(formatted_chunks)
     return name
 
 

@@ -180,6 +180,10 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "Alex Alferov c/o All Media",
                 "Alex Alferov c/o All Media",
             ),  # special token "c/o" should be lowercase
+            (
+                "1.JOHN A.B.C. DOE; jane doe (credited as jane star); LeeRoy Jenkins",
+                "1. John A.B.C. Doe, Jane Star, LeeRoy Jenkins",
+            ),  # composite test: multiple transformations
         ]
 
     def test_production_type_mapping(self):
