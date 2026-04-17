@@ -17,7 +17,7 @@ from fmrest.record import Record
 logger = logging.getLogger(Path(__file__).stem)
 
 # These are delimiter variations used in Filemaker multi-value fields
-FM_DELIMITER_PATTERN = r"\s*(?:[,;/|]|\band\b|&|\r)\s*"
+FM_DELIMITER_PATTERN = r"\s*([,;/|]|\band\b|&|\r)\s*"
 
 
 # --------------------
@@ -435,7 +435,11 @@ def _split_multivalue_field(
     :param delimiter: The delimiter to split on.
     :return: A list of individual values, and a boolean indicating whether to skip transformers.
     """
-    value = value.strip()
+    # Strip leading and trailing whitespace,
+    # then also strip any leadin or trailing
+    # delimiter characters defined for the field.
+    # This prevents bad delimiters from being included in output values.
+    value = value.strip().strip(delimiter)
     if not value:
         return [""], False
 

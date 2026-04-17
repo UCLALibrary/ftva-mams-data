@@ -157,6 +157,22 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "Wally Bulloch",
             ),  # bad leading delimiter should not yield empty values
             (
+                "John Smith, Tom Jones,",
+                "John Smith, Tom Jones",
+            ),  # trailing comma should get stripped
+            (
+                "John Smith,, Tom Jones",
+                "John Smith, Tom Jones",
+            ),  # bad delimiters in middle of value should not yield empty values
+            (
+                "John Smith,Tom Jones",
+                "John Smith, Tom Jones",
+            ),  # delimiter missing space should get replaced with delimiter + space
+            (
+                "John Smith, Tom Jones \r\r",
+                "John Smith, Tom Jones",
+            ),  # trailing carriage returns should get stripped
+            (
                 "Mashuq M Deen, Dawn D Deason",
                 "Mashuq M. Deen, Dawn D. Deason",
             ),  # single initials should get trailing dot
