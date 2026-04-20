@@ -16,6 +16,9 @@ from fmrest.record import Record
 # handlers are configured via `_configure_logging`.
 logger = logging.getLogger(Path(__file__).stem)
 
+# These are delimiter variations used in Filemaker multi-value fields
+FM_DELIMITER_PATTERN = r"\s*([,;/|]|\band\b|&|\r)\s*"
+
 
 # --------------------
 # Helper functions
@@ -140,12 +143,20 @@ MAPPINGS = {
         "N/A": "No linguistic content",
         "NONE": "No linguistic content",
     },
+    "director": {
+        "NO DIRECTOR LISTED": "N/A",
+        "N/A": "N/A",
+        "NULL": "Unknown",
+        "UNKNOWN": "Unknown",
+        "": "Unknown",
+    },
 }
 
 
 class FieldDelimiters(StrEnum):
     production_type = "\r"
     Language = ", "
+    director = ", "
 
 
 def _trim_whitespace(value: str) -> str:
@@ -181,6 +192,128 @@ def _make_uppercase(value: str) -> str:
 def _make_capitalized(value: str) -> str:
     """Convert the provided value to capitalized case."""
     return capwords(value)
+
+
+def _is_initials_chunk(chunk: str) -> bool:
+    """True if the chunk is only single-letter initials separated by dots (e.g. A.B. or c.d.e.).
+
+    :param chunk: The chunk to check.
+    :return: True if the chunk is only single-letter initials separated by dots, False otherwise.
+    """
+    # Must be a non-empty string and only contain letters or dots
+    if not chunk or not all(c.isalpha() or c == "." for c in chunk):
+        return False
+    # Split on dots and check that each segment is a single letter
+    segments = [s for s in chunk.split(".") if s]
+    # Must be at least one segment and each segment must be a single letter
+    return bool(segments) and all(len(s) == 1 and s.isalpha() for s in segments)
+
+
+def _format_initials(chunk: str) -> str:
+    """Format an initials chunk to all-uppercase, e.g. a.b.c. -> A.B.C.
+
+    :param chunk: The chunk to format.
+    :return: The formatted initials chunk.
+    """
+    letters = [c for c in chunk if c.isalpha()]
+    return ".".join(c.upper() for c in letters) + "."  # add trailing dot
+
+
+def _standardize_director_name(name: str) -> str:
+    """Return a standardized form for director names, based on specs.
+
+    :param name: Raw input name string.
+    :return: Standardized output name string.
+    """
+    # Apply capwords to fully uppercased or fully lowercased names,
+    # handling proper casing of hyphenated chunks.
+    if name.isupper() or name.islower():
+        for chunk in name.split("-"):
+            name = name.replace(chunk, capwords(chunk))
+
+    # Address capitalization issue with nicknames,
+    # e.g. prevent output of "Rosco 'fatty' Arbuckle",
+    # due to `capwords` interpreting quote as first letter in nickname.
+    # NOTE: Output nicknames all wrapped in double-quotes.
+    name = re.sub(r"[\'\"](.*)[\'\"]", lambda m: f'"{capwords(m.group(1))}"', name)
+
+    # Roman numeral regex adapted from @https://stackoverflow.com/a/267405.
+    # It looks for numerals I through IX in a case-insensitive manner,
+    # (but not just X, to avoid matching e.g. "Malcolm X"),
+    # asserting the numerals have a word boundary before them,
+    # and are at the end of the string.
+    name = re.sub(
+        r"\b(?=[XVI])(IX|IV|V?I{0,3})$",
+        lambda m: m.group(0).upper(),
+        name,
+        flags=re.IGNORECASE,
+    )
+
+    # Special token (i.e. substring) "c/o" should be kept as-is, case-insensitive.
+    # Regex looks for "c/o" with word boundaries on either side in a case-insensitive manner.
+    name = re.sub(r"\bc/o\b", "c/o", name, flags=re.IGNORECASE)
+
+    # Handle issue with capitalizing numbered names, e.g. `1.brad Bird` -> `1. Brad Bird`.
+    # Regex looks for 1 or more digits followed by a dot,
+    # followed by 0 or more spaces, followed by any characters.
+    # The first group is the digits and dot, the second group is the rest of the string.
+    # We want to make sure the second group is capitalized correctly,
+    # and normalize the space between the groups.
+    name = re.sub(
+        r"(\d+\.)\s*(.+)",
+        lambda m: f"{m.group(1)} {capwords(m.group(2))}",
+        name,
+    )
+
+    # Handle capitalization of initials after other transformations are applied.
+    formatted_chunks = []
+    for chunk in name.split():
+        if _is_initials_chunk(chunk):
+            formatted_chunks.append(_format_initials(chunk))
+            continue
+        formatted_chunks.append(chunk)
+    name = " ".join(formatted_chunks)
+    return name
+
+
+def _parse_credited_names(value: str) -> str:
+    """Parse credited names from the provided value, according to specs:
+
+    - Use name following "as", e.g. Lew Landers (as Louis Friedlander) -> Louis Friedlander
+    - Use name before "i.e.", e.g. William Goodrich [i.e. Roscoe Arbuckle] -> William Goodrich
+    - Use name before "aka", e.g. Marcus aka Sid Marcus -> Marcus
+    - Note that "i.e." is normalized in `_split_multivalue_field` to avoid splitting on the comma
+
+    :param value: Raw value string.
+    :return: Parsed credited names string.
+    """
+    # Use name following "as", accounting for possible parens or brackets
+    match_as = re.search(
+        r"(?:\(|\[)?"  # non-capturing group for possible opening paren or bracket
+        r"\bas\b\s*([^\)\]]+)"  # capture name after "as" (excluding closing paren or bracket)
+        r"(?:\)|\])?",  # non-capturing group for possible closing paren or bracket
+        value,
+        re.IGNORECASE,
+    )
+    if match_as:
+        name = match_as.group(1).strip()
+        if name:
+            return name
+
+    # Use name before "i.e." or "aka", accounting for possible parens or brackets
+    match_ie_aka = re.search(
+        r"(.*?)\s+"  # capture group for name, follwed by 1 or more spaces
+        r"(?:\(|\[)?"  # non-capturing group for possible opening paren or bracket
+        r"(?:i\.e\.|aka)",  # non-capturing group for "i.e." or "aka"
+        value,
+        re.IGNORECASE,
+    )
+    if match_ie_aka:
+        name = match_ie_aka.group(1).strip()
+        if name:
+            return name
+
+    return value
 
 
 def _remove_intertitles(value: str) -> str:
@@ -270,27 +403,80 @@ TRANSFORMERS = {
         _normalize_language_spelling,
         lambda value: MAPPINGS["Language"].get(value.upper(), value),
     ],
+    "director": [
+        _trim_whitespace,
+        _parse_credited_names,
+        _standardize_director_name,
+        lambda value: MAPPINGS["director"].get(value.upper(), value),
+    ],
 }
 
 
-def _split_multivalue_field(value: str, delimiter: str) -> list[str]:
-    """Split a multi-value field into a list of values, based on the provided delimiter.
-    Also trims whitespace from each value and filters out any empty values."""
-    if delimiter == FieldDelimiters["Language"].value:
-        # First, check for the known value "N/A.
-        # If present, replace with "NONE" and process as usual,
-        # which will eventually be mapped to "No linguistic content" by the mapping function.
+def _normalize_multivalue_delimiters(value: str, delimiter: str) -> str:
+    """Normalize the delimiters in the provided value to the provided delimiter."""
+    # Case-insensitive to catch both " and " and " AND " delimiters
+    new_value = re.sub(FM_DELIMITER_PATTERN, delimiter, value, flags=re.IGNORECASE)
+    if new_value != value:
+        logger.debug(f"Normalized delimiters: {value!r} -> {new_value!r}")
+    return new_value
+
+
+def _split_multivalue_field(
+    field_name: str, value: str, delimiter: str
+) -> tuple[list[str], bool]:
+    """Splits a multi-value field into a list of values, based on the provided delimiter.
+    Also trims whitespace from each value and filters out any empty values.
+
+    Also returns a boolean indicating whether to skip transformers,
+    to preserve values as-is for certain fields.
+
+    :param field_name: The field name, for special handling of certain fields.
+    :param value: The input value to split.
+    :param delimiter: The delimiter to split on.
+    :return: A list of individual values, and a boolean indicating whether to skip transformers.
+    """
+    # Strip leading and trailing whitespace,
+    # then also strip any leadin or trailing
+    # delimiter characters defined for the field.
+    # This prevents bad delimiters from being included in output values.
+    value = value.strip().strip(delimiter)
+    if not value:
+        return [""], False
+
+    # Handle special cases
+    if field_name == "Language":
         if "N/A" in value:
             logger.debug(
                 "Found known value 'N/A' in language field; replacing with 'NONE'."
             )
             value = value.replace("N/A", "NONE")
-        # Normalize all possible delimiters to comma for language
-        value = re.sub(r"\s*(?:[,;/|]|\band\b|&|\r)\s*", ", ", value)
-        logger.debug(f"Normalized delimiters to comma: {value!r}")
+        # Normalize FM delimiters to comma for language
+        value = _normalize_multivalue_delimiters(value, delimiter)
+    elif field_name == "director":
+        # If value contains "n/a" or "c/o" (case-insensitive),
+        # return value as-is, but do not skip transformers.
+        if re.search(r"(n/a|c/o)", value, flags=re.IGNORECASE):
+            return [value], False
+
+        # Normalize "i.e.," to "i.e." before delimiter normalization
+        # so that commas in "i.e.," are not counted as delimiters
+        value = re.sub(r"i\.\s*e\.\s*,", "i.e.", value, flags=re.IGNORECASE)
+
+        # Handle cases where right parenthesis `)` is followed by an uppercase letter,
+        # inserting a comma and space between them.
+        value = re.sub(r"\)[A-Z]", lambda m: f"{m[0][:1]}, {m[0][1:]}", value)
+
+        # If multiple delimiter types are found,
+        # return value as-is and skip transformers.
+        matches = re.findall(FM_DELIMITER_PATTERN, value)
+        if len(set(matches)) > 1:
+            return [value], True
+        value = _normalize_multivalue_delimiters(value, delimiter)
+    # Default to normalizing semicolons with delimiter
     else:
         value = value.replace(";", delimiter)
-    return [v.strip() for v in value.split(delimiter)]
+    # Use list(filter(None, ...)) to filter out any empty values from the split list.
+    return [v.strip() for v in list(filter(None, value.split(delimiter)))], False
 
 
 def _rejoin_multivalue_field(values: list[str], delimiter: str) -> str:
@@ -300,7 +486,6 @@ def _rejoin_multivalue_field(values: list[str], delimiter: str) -> str:
     seen = set()
     filtered = []
     for v in values:
-
         if v and v not in seen:
             filtered.append(v)
             seen.add(v)
@@ -318,7 +503,14 @@ def _apply_transformers(field_name: str, raw_value: str) -> str:
     :return: The transformed value.
     """
     delimiter = FieldDelimiters[field_name].value
-    split_values = _split_multivalue_field(raw_value, delimiter)
+    split_values, skip_transforms = _split_multivalue_field(
+        field_name, raw_value, delimiter
+    )
+    # Values in some fields require no transforms, aside from trimming whitespace,
+    # which is handled by the `_split_multivalue_field` function.
+    # If `skip_transforms` is True, there should be only one trimmed value in the list.
+    if skip_transforms:
+        return split_values[0] if split_values else ""
     transformed_values = []
     for value in split_values:
         for transformer in TRANSFORMERS[field_name]:
@@ -341,6 +533,7 @@ def _initialize_client(config: dict) -> FilemakerClient:
         client = FilemakerClient(
             user=config["filemaker"]["user"],
             password=config["filemaker"]["password"],
+            timeout=240,
         )
         logger.info("Connected to Filemaker.")
         return client
@@ -379,12 +572,13 @@ def _get_all_records(fm_client: FilemakerClient, page_size: int) -> Iterator[Rec
             offset=offset,
             limit=page_size,
         )
-        logger.info(f"Retrieved records {offset} to {offset + len(records) - 1}...")
 
-        # After final page reached, keep checking for records until iterator is exhausted
+        # Empty records list indicates end of pagination.
         if not records:
+            logger.info("Pagination complete. All records retrieved.")
             return
 
+        logger.info(f"Retrieved records {offset} to {offset + len(records) - 1}...")
         yield from records
         offset += page_size
 

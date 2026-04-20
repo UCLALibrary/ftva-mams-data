@@ -68,6 +68,123 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "No linguistic content, English",
             ),  # "N/A" should be processed as "No linguistic content" and not split
         ]
+        self.test_director_values = [
+            (
+                "OLEG LITVAK, william heick, R.J. CUTLER, MARY ANN DOANE, john a.b.c. doe",
+                "Oleg Litvak, William Heick, R.J. Cutler, Mary Ann Doane, John A.B.C. Doe",
+            ),  # capitalization variations
+            (
+                "Diego de la Texera, John Van Der Doe",
+                "Diego de la Texera, John Van Der Doe",
+            ),  # Mixed-case remains as-is
+            (
+                "Richard Ray Perez and Lorena Parlee",
+                "Richard Ray Perez, Lorena Parlee",
+            ),  # "and" delimiter
+            (
+                "Debra Chasnoff\rKim Klausner\rMargaret Lazarus",
+                "Debra Chasnoff, Kim Klausner, Margaret Lazarus",
+            ),  # \r delimiter
+            (
+                "Ray Taylor & Lewis D. Collins",
+                "Ray Taylor, Lewis D. Collins",
+            ),  # ampersand delimiter
+            (
+                "Ford Beebe ; John Rawlins",
+                "Ford Beebe, John Rawlins",
+            ),  # semicolon delimiter
+            (
+                "Monogram Productions, Inc. ; a King Brothers production",
+                "Monogram Productions, Inc. ; a King Brothers production",
+            ),  # multiple delimiters--keep as-is
+            ("n/a", "N/A"),  # testing null value mapping
+            ("N/A", "N/A"),  # testing null value mapping
+            ("N/a", "N/A"),  # testing null value mapping
+            ("No Director listed", "N/A"),  # testing null value mapping
+            ("null, NULL", "Unknown"),  # testing null value mapping
+            ("unknown, UNKNOWN, Unknown", "Unknown"),  # testing null value mapping
+            ("   ", "Unknown"),  # empty value
+            (
+                "john director-doe",
+                "John Director-Doe",
+            ),  # hyphenated surname
+            (
+                "Lew Landers (as Louis Friedlander)",
+                "Louis Friedlander",
+            ),  # credited name after parenthetical "as"
+            (
+                "JANE DIRECTOR AS STAGE NAME",
+                "Stage Name",
+            ),  # credited name after case-insensitive "as"
+            (
+                "William Goodrich [i.e. Roscoe Arbuckle]",
+                "William Goodrich",
+            ),  # take name before bracketed i.e.
+            (
+                "Marcus aka Sid Marcus",
+                "Marcus",
+            ),  # take name before aka
+            (
+                "John Doe (aka John D)",
+                "John Doe",
+            ),  # take name before parenthetical aka
+            (
+                "Jane Doe, William Goodrich i.e. , Roscoe Arbuckle",
+                "Jane Doe, William Goodrich",
+            ),  # `i.e.` with space before comma should not split multivalue on that comma
+            (
+                "André De Toth (as Andre deToth)",
+                "Andre deToth",
+            ),  # name following "as" keeps casing
+            (
+                "David MacDonald, Mervyn LeRoy, John O'Brien Doe, LeeRoy Jenkins",
+                "David MacDonald, Mervyn LeRoy, John O'Brien Doe, LeeRoy Jenkins",
+            ),  # return names with internal capitalization as-is
+            (
+                "Ub Iwerks (uncredited)Shamus Culhane(co-director)",
+                "Ub Iwerks (uncredited), Shamus Culhane(co-director)",
+            ),  # insert `, ` between right parenthesis and uppercase letter
+            (
+                "1.Brad Bird\r2. Sam Raimi\r3.Jared Hess\r4. Adam Mckay",
+                "1. Brad Bird, 2. Sam Raimi, 3. Jared Hess, 4. Adam Mckay",
+            ),  # capitalize numbered names
+            (
+                "Richard Gerdau ;",
+                "Richard Gerdau",
+            ),  # bad trailing delimiter should not yield empty values
+            (
+                ", Wally Bulloch",
+                "Wally Bulloch",
+            ),  # bad leading delimiter should not yield empty values
+            (
+                "John Smith, Tom Jones,",
+                "John Smith, Tom Jones",
+            ),  # trailing comma should get stripped
+            (
+                "John Smith,, Tom Jones",
+                "John Smith, Tom Jones",
+            ),  # bad delimiters in middle of value should not yield empty values
+            (
+                "John Smith,Tom Jones",
+                "John Smith, Tom Jones",
+            ),  # delimiter missing space should get replaced with delimiter + space
+            (
+                "John Smith, Tom Jones \r\r",
+                "John Smith, Tom Jones",
+            ),  # trailing carriage returns should get stripped
+            (
+                "Mashuq M Deen, Dawn D Deason",
+                "Mashuq M. Deen, Dawn D. Deason",
+            ),  # single initials should get trailing dot
+            (
+                "Alex Alferov c/o All Media",
+                "Alex Alferov c/o All Media",
+            ),  # special token "c/o" should be lowercase
+            (
+                "1.JOHN A.B.C. DOE; jane doe (credited as jane star); LeeRoy Jenkins",
+                "1. John A.B.C. Doe, Jane Star, LeeRoy Jenkins",
+            ),  # composite test: multiple transformations
+        ]
 
     def test_production_type_mapping(self):
         for input, expected in self.test_production_type_values:
@@ -79,4 +196,10 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
         for input, expected in self.test_language_values:
             with self.subTest(input=input, expected=expected):
                 new_value = _apply_transformers("Language", input)
+                self.assertEqual(new_value, expected)
+
+    def test_director_mapping(self):
+        for input, expected in self.test_director_values:
+            with self.subTest(input=input, expected=expected):
+                new_value = _apply_transformers("director", input)
                 self.assertEqual(new_value, expected)
