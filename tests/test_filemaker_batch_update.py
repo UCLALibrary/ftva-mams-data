@@ -211,7 +211,11 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ("04/1985", "1985-04"),
             ("19", "19--?"),  # partial year with two digits
             ("20-", "20--"),  # partial year with two digits and trailing hyphen
-            ("195-", "195-?"),  # partial year with three digits
+            ("195-", "195-"),  # partial year with three digits but no question mark
+            (
+                "196-?",
+                "196-?",
+            ),  # partial year with three digits, dash, and question mark, no modification
             ("1990s", "199-"),  # decade
             ("19??", "19--?"),  # partial year with two digits and question marks
             ("1946?", "1946?"),  # partial year with four digits and ?, no modification
@@ -228,6 +232,11 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ("1975-76", "1975-1976"),
             ("2015-03-12", "2015-03-12"),  # valid date, no transform needed
             ("1939-11-28", "1939-11-28"),
+            ("JUNE 28-29", "JUNE 28-29"),  # date range of days should not be modified
+            ("MAY 9-10, 1980", "MAY 9-10, 1980"),
+            ("APRIL 30 & MAY 1-3, 1980", "APRIL 30 & MAY 1-3, 1980"),
+            ("MAY 7,8 & 9", "MAY 7,8 & 9"),
+            ("FALL 1978", "FALL 1978"),  # season and year should not be modified
         ]
 
     def test_production_type_mapping(self):

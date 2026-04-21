@@ -438,28 +438,34 @@ def _normalize_date(value: str) -> str:
     if not v or not re.search(r"\d", v):
         return v
 
-    # Apply partial-year and placeholder/range normalizers first so we don't
-    # accidentally let a short numeric string be parsed as a day/month.
-    # Note: run partial-year handling before replacing U/X so we can distinguish
-    # explicit trailing hyphens from ones created by placeholder replacement.
-    v = _handle_partial_years(v)
-    v = _handle_U_X_placeholders(v)
-    v = _normalize_date_ranges(v)
+    # Preserve copyright-like values such as 'c1978' (should not be parsed into a date)
+    if re.fullmatch(r"c\d{4}\??", v, flags=re.IGNORECASE):
+        return v
+
+    # If we already have a normalized YYYY-MM or YYYY-MM-DD or range, return it
+    if re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", v) or re.fullmatch(r"\d{4}-\d{4}", v):
+        return v
 
     # If the value begins with a month name, prefer `dateparser` to produce
     # YYYY-MM or YYYY-MM-DD (avoid regex-heavy transformations here).
-    month_regex = (
-        r"^(January|February|March|April|May|June|July|August|September|October|November|December|"
-        r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b"
+    # However, guard against month + day-range strings (e.g. "June 28-29",
+    # "May 9-10, 1980") which should be left unchanged.
+    month_names = (
+        "January|February|March|April|May|June|July|August|September|October|November|December|"
+        "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
     )
+    # Match month followed by a day-day range, optionally with a year suffix.
+    day_range_regex = (
+        rf"^({month_names})\b\s+\d{{1,2}}\s*[-–]\s*\d{{1,2}}(?:\s*,\s*\d{{4}})?$"
+    )
+    if re.match(day_range_regex, v, re.IGNORECASE):
+        return v
+
+    month_regex = rf"^({month_names})\b"
     if re.match(month_regex, v, re.IGNORECASE):
         try:
-            # Use `PREFER_DAY_OF_MONTH: 'first'` so ambiguous month+year
-            # expressions (e.g. "Jan 1956") produce a stable canonical
-            # representation. We prefer YYYY-MM when a day is not present,
-            # but when a day is present we want a full YYYY-MM-DD. This
-            # setting ensures `dateparser` chooses the first day of the
-            # month rather than attempting to infer the day.
+            # Use `PREFER_DAY_OF_MONTH: 'first'` so dateparser always uses the
+            # first of the month rather than attempting to infer the day.
             dt = dateparser.parse(v, settings={"PREFER_DAY_OF_MONTH": "first"})
             if dt:
                 # If original contains an explicit day number, return full date
@@ -490,14 +496,6 @@ def _normalize_date(value: str) -> str:
         if 1 <= month <= 12:
             return f"{year:04d}-{month:02d}"
 
-    # Preserve copyright-like values such as 'c1978' (should not be parsed into a date)
-    if re.fullmatch(r"c\d{4}\??", v, flags=re.IGNORECASE):
-        return v
-
-    # If we already have a normalized YYYY-MM or YYYY-MM-DD or range, return it
-    if re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", v) or re.fullmatch(r"\d{4}-\d{4}", v):
-        return v
-
     # Try EDTF parsing/validation next (handles u-placements, ? and ranges)
     v_edtf = re.sub(r"[UuXx]", "u", v)
     try:
@@ -513,7 +511,7 @@ def _normalize_date(value: str) -> str:
     try:
         # Only call dateparser when the transformed value looks like a
         # natural-language date (avoid interpreting short or placeholder
-        # strings as current-month dates). Use `v` (the transformed value).
+        # strings as current-month dates). Use v, the value after transformations.
         if re.search(r"[A-Za-z]|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", v):
             # Make deterministic day selection (first) to avoid
             # unpredictable results when only month/year is present.
@@ -541,9 +539,6 @@ def _handle_partial_years(value: str) -> str:
     # Three digits: 195 -> 195-? (partial year)
     if re.match(r"^\d{3}$", value):
         return value + "-?"
-    # Three digits + dash: 195- -> 195-? (partial year)
-    if re.match(r"^\d{3}-$", value):
-        return value + "?"
     # Decades: 1950s -> 195-
     if re.match(r"^\d{3}0s$", value):
         return value[:3] + "-"
@@ -633,6 +628,9 @@ TRANSFORMERS = {
         lambda value: MAPPINGS["date"].get(value, value),
         _remove_brackets,
         _normalize_copyright_and_circa,
+        _handle_partial_years,
+        _handle_U_X_placeholders,
+        _normalize_date_ranges,
         _normalize_date,
     ],
     "release_broadcast_year": [
@@ -640,6 +638,9 @@ TRANSFORMERS = {
         lambda value: MAPPINGS["date"].get(value, value),
         _remove_brackets,
         _normalize_copyright_and_circa,
+        _handle_partial_years,
+        _handle_U_X_placeholders,
+        _normalize_date_ranges,
         _normalize_date,
     ],
 }
@@ -935,7 +936,6 @@ def main() -> None:
     args = _get_arguments()
     _configure_logging(dry_run=args.dry_run)
     config = _get_config(args.config_file)
-    logger.info(config)
 
     if args.dry_run:
         logger.info("DRY RUN: no changes will be written to Filemaker.")
