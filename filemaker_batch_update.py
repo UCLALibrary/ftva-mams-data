@@ -9,8 +9,9 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from ftva_etl import FilemakerClient
-from fmrest.exceptions import FileMakerError
+from fmrest.exceptions import FileMakerError, RequestException
 from fmrest.record import Record
+from retry.api import retry_call
 
 # Creating module-level logger here;
 # handlers are configured via `_configure_logging`.
@@ -621,11 +622,21 @@ def _process_record(
 
     if pending_changes and not dry_run:
         try:
-            success = fm_client.edit_record(
-                record_id=record_id, field_data=pending_changes
+            # Retry up to 10 times with long backoff between attempts,
+            # in order to handle non-`FileMakerError` exceptions such as `RequestException`,
+            # likely originating from rate limiting or other issues on the Filemaker server.
+            success = retry_call(
+                fm_client.edit_record,
+                fargs=[record_id, pending_changes],
+                exceptions=(RequestException,),
+                tries=10,
+                delay=1,
+                backoff=4,
+                max_delay=60,
+                logger=logger,
             )
+        # For `FileMakerError` exceptions, log the error and continue processing other records
         except FileMakerError as e:
-            # Log the error and continue processing other records
             logger.error(
                 f"Skipping record_id={record_id} inventory_id={inventory_id!r} "
                 f"due to Filemaker error: {e}. "
