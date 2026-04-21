@@ -843,6 +843,13 @@ def _process_record(
         new_value = _apply_transformers(field_name, current_value)
 
         if current_value == new_value:  # skip if no change
+            # If the values are not blank, log a message to aid in review
+            if current_value != "":
+                logger.debug(
+                    f"NO CHANGE field_name={field_name} "
+                    f"record_id={record_id} inventory_id={inventory_id} "
+                    f"from={current_value!r} to={(new_value or '')!r}"
+                )
             continue
 
         logger.debug(
