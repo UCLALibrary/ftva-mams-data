@@ -8,3 +8,5 @@ openpyxl==3.1.5
 strsimpy==0.2.1
 # Alma API and analytics client 
 git+https://github.com/UCLALibrary/alma-api-client
+# For retrying requests to Filemaker API
+retry==0.9.2
