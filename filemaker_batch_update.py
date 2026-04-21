@@ -845,7 +845,7 @@ def _process_record(
         if current_value == new_value:  # skip if no change
             continue
 
-        logger.info(
+        logger.debug(
             f"UPDATE field_name={field_name} "
             f"record_id={record_id} inventory_id={inventory_id} "
             f"from={current_value!r} to={(new_value or '')!r}"  # use `!r` so `\r` is visible in log
