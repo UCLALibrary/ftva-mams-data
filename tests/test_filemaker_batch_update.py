@@ -186,6 +186,8 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ),  # composite test: multiple transformations
         ]
         self.test_date_values = [
+            ("1999", "1999"),  # valid year, no transform needed
+            ("1999-01-01", "1999-01-01"),  # valid date, no transform needed
             ("1974 ", "1974"),  # trailing whitespace
             ("n/a", "N/A"),  # special case, known value
             ("UUUU", "Unknown"),  # special case, known value
@@ -237,6 +239,11 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ("APRIL 30 & MAY 1-3, 1980", "APRIL 30 & MAY 1-3, 1980"),
             ("MAY 7,8 & 9", "MAY 7,8 & 9"),
             ("FALL 1978", "FALL 1978"),  # season and year should not be modified
+            (
+                "11-12-1959, 11-19-1959",
+                "11-12-1959, 11-19-1959",
+            ),  # don't modify lists of dates
+            ("04-02-1959, 04-09-1959", "04-02-1959, 04-09-1959"),
         ]
 
     def test_production_type_mapping(self):

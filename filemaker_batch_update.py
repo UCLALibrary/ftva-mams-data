@@ -413,8 +413,7 @@ def _normalize_copyright_and_circa(value: str) -> str:
     """Normalize various representations of "Copyright" and "Circa" in the provided value."""
     # Copyright: Standardize to lowercase c followed immediately by year.
     # c 1978, C1988, COPYRIGHT 2007 -> c1978, c1988, c2007
-    copyright_pattern = re.compile(r"c(?:opyright)?\.?\s*(\d{4})", re.IGNORECASE)
-    value = copyright_pattern.sub(r"c\1", value)
+    value = re.sub(r"(?i)c(?:opyright)?\.?\s*(\d{4})", r"c\1", value)
 
     # Circa: Replace circa, ca., CA., CIRCA, c. with question mark after year
     # Exception: Convert circa date range to “or” format first
@@ -433,18 +432,25 @@ def _normalize_date(value: str) -> str:
     """Normalize dates using EDTF (for uncertainty/unknown digits/ranges) with a
     fallback to dateparser for natural-language dates.
     """
-    v = (value or "").strip()
+    value = (value or "").strip()
+    # If value contains multiple full numeric dates separated by commas, leave as-is
+    # e.g. "11-12-1959, 11-19-1959" or "04/02/1959, 04/09/1959"
+    if "," in value:
+        multi_dates = re.findall(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", value)
+        if len(multi_dates) > 1:
+            return value
     # If no value, or if value doesn't contain any digits, return early
-    if not v or not re.search(r"\d", v):
-        return v
+    if not value or not re.search(r"\d", value):
+        return value
 
     # Preserve copyright-like values such as 'c1978' (should not be parsed into a date)
-    if re.fullmatch(r"c\d{4}\??", v, flags=re.IGNORECASE):
-        return v
-
+    if re.fullmatch(r"c\d{4}\??", value, flags=re.IGNORECASE):
+        return value
     # If we already have a normalized YYYY-MM or YYYY-MM-DD or range, return it
-    if re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", v) or re.fullmatch(r"\d{4}-\d{4}", v):
-        return v
+    if re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", value) or re.fullmatch(
+        r"\d{4}-\d{4}", value
+    ):
+        return value
 
     # If the value begins with a month name, prefer `dateparser` to produce
     # YYYY-MM or YYYY-MM-DD (avoid regex-heavy transformations here).
@@ -458,38 +464,38 @@ def _normalize_date(value: str) -> str:
     day_range_regex = (
         rf"^({month_names})\b\s+\d{{1,2}}\s*[-–]\s*\d{{1,2}}(?:\s*,\s*\d{{4}})?$"
     )
-    if re.match(day_range_regex, v, re.IGNORECASE):
-        return v
+    if re.match(day_range_regex, value, re.IGNORECASE):
+        return value
 
     month_regex = rf"^({month_names})\b"
-    if re.match(month_regex, v, re.IGNORECASE):
+    if re.match(month_regex, value, re.IGNORECASE):
         try:
             # Use `PREFER_DAY_OF_MONTH: 'first'` so dateparser always uses the
             # first of the month rather than attempting to infer the day.
-            dt = dateparser.parse(v, settings={"PREFER_DAY_OF_MONTH": "first"})
+            dt = dateparser.parse(value, settings={"PREFER_DAY_OF_MONTH": "first"})
             if dt:
                 # If original contains an explicit day number, return full date
-                if re.search(r"\b\d{1,2}\b", v):
-                    v = dt.date().isoformat()
+                if re.search(r"\b\d{1,2}\b", value):
+                    value = dt.date().isoformat()
                 else:
-                    v = f"{dt.year:04d}-{dt.month:02d}"
+                    value = f"{dt.year:04d}-{dt.month:02d}"
         except (ValueError, TypeError, OverflowError):
             pass
 
     # Normalize common numeric date formats using `dateparser` where possible
     # MM/DD/YYYY or MM-DD-YYYY -> YYYY-MM-DD
-    if re.search(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", v):
+    if re.search(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", value):
         try:
             # For explicit numeric dates, set `PREFER_DAY_OF_MONTH` to keep
             # parsing deterministic (choose first-of-month when needed).
-            dt = dateparser.parse(v, settings={"PREFER_DAY_OF_MONTH": "first"})
+            dt = dateparser.parse(value, settings={"PREFER_DAY_OF_MONTH": "first"})
             if dt:
                 return dt.date().isoformat()
         except (ValueError, TypeError, OverflowError):
             pass
 
     # MM/YYYY or MM-YYYY -> YYYY-MM (preserve month precision)
-    m = re.search(r"\b(\d{1,2})[/-](\d{4})\b", v)
+    m = re.search(r"\b(\d{1,2})[/-](\d{4})\b", value)
     if m:
         month = int(m.group(1))
         year = int(m.group(2))
@@ -497,7 +503,7 @@ def _normalize_date(value: str) -> str:
             return f"{year:04d}-{month:02d}"
 
     # Try EDTF parsing/validation next (handles u-placements, ? and ranges)
-    v_edtf = re.sub(r"[UuXx]", "u", v)
+    v_edtf = re.sub(r"[UuXx]", "u", value)
     try:
         parsed = parse_edtf(v_edtf)
         if parsed:
@@ -511,21 +517,23 @@ def _normalize_date(value: str) -> str:
     try:
         # Only call dateparser when the transformed value looks like a
         # natural-language date (avoid interpreting short or placeholder
-        # strings as current-month dates). Use v, the value after transformations.
-        if re.search(r"[A-Za-z]|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", v):
+        # strings as current-month dates). Use value, the value after transformations.
+        if re.search(r"[A-Za-z]|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", value):
             # Make deterministic day selection (first) to avoid
             # unpredictable results when only month/year is present.
-            dt = dateparser.parse(v, settings={"PREFER_DAY_OF_MONTH": "first"})
+            dt = dateparser.parse(value, settings={"PREFER_DAY_OF_MONTH": "first"})
             if dt:
                 # If transformed value had a month name with no day, prefer YYYY-MM
-                if re.search(r"[A-Za-z]", v) and not re.search(r"\b\d{1,2}\b", v):
+                if re.search(r"[A-Za-z]", value) and not re.search(
+                    r"\b\d{1,2}\b", value
+                ):
                     return f"{dt.year:04d}-{dt.month:02d}"
                 return dt.date().isoformat()
     except (ValueError, TypeError, OverflowError):
         pass
 
     # If nothing matched, return the (possibly transformed) value
-    return v
+    return value
 
 
 def _handle_partial_years(value: str) -> str:
@@ -623,6 +631,8 @@ TRANSFORMERS = {
         _standardize_director_name,
         lambda value: MAPPINGS["director"].get(value.upper(), value),
     ],
+    # Both date fields (record_date and release_broadcast_year) use the same sequence of
+    # transformers, listed separately here to maintain one-to-one mapping with FM fields.
     "record_date": [
         _trim_whitespace,
         lambda value: MAPPINGS["date"].get(value, value),
@@ -848,7 +858,7 @@ def _process_record(
                 logger.debug(
                     f"NO CHANGE field_name={field_name} "
                     f"record_id={record_id} inventory_id={inventory_id} "
-                    f"from={current_value!r} to={(new_value or '')!r}"
+                    f"from={current_value!r} to={(new_value)!r}"
                 )
             continue
 
