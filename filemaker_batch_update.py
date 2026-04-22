@@ -413,18 +413,43 @@ def _normalize_copyright_and_circa(value: str) -> str:
     """Normalize various representations of "Copyright" and "Circa" in the provided value."""
     # Copyright: Standardize to lowercase c followed immediately by year.
     # c 1978, C1988, COPYRIGHT 2007 -> c1978, c1988, c2007
-    value = re.sub(r"(?i)c(?:opyright)?\.?\s*(\d{4})", r"c\1", value)
+    # Normalize curly apostrophes to simple ASCII
+    value = value.replace("’", "'").replace("‘", "'")
+
+    # Normalize decade forms with apostrophes (e.g. "1920's", "1920’s") to a consistent
+    # representation so subsequent rules can detect decades reliably.
+    value = re.sub(
+        r"(\d{3})0['’]s\??", lambda m: f"{m.group(1)}-?", value, flags=re.IGNORECASE
+    )
+
+    # If a circa/token prefix remains (e.g. "ca. 192-?"), drop the prefix so we
+    # end up with the normalized decade token ("192-?"). Only remove the prefix
+    # when what follows looks like a normalized decade (three digits + '-?').
+    value = re.sub(r"(?i)^(?:circa|ca\.?|c\.? )\s*(?=\d{3}-\?)", "", value)
+
+    # COPYRIGHT: Standardize to lowercase c followed immediately by year.
+    # Require a word-boundary after the year so we don't accidentally match decade tokens
+    # such as "1970s" (which should be handled above).
+    value = re.sub(r"(?i)c(?:opyright)?\.?\s*(\d{4})\b\.?", r"c\1", value)
 
     # Circa: Replace circa, ca., CA., CIRCA, c. with question mark after year
     # Exception: Convert circa date range to “or” format first
     # circa 1929-1930 -> 1929 or 1930
     value = re.sub(r"(?i)circa\s+(\d{4})\s*[-–]\s*(\d{4})", r"\1 or \2", value)
 
+    # Handle circa + decade (e.g. "c. 1970s", "ca. 1920's") -> normalize to decade uncertainty
+    value = re.sub(
+        r"(?i)(?:circa|ca\.?|c\.)\s*(\d{3})0s\b\??", lambda m: f"{m.group(1)}-?", value
+    )
+
     # Circa: Replace single-year circa variations with question mark after year
     # e.g. circa 1970 -> 1970?
     value = re.sub(
         r"(?i)\b(?:circa|ca\.?|c\.)\s*(\d{4})\b", lambda m: f"{m.group(1)}?", value
     )
+
+    # If 'circa' follows the year (e.g. '1924 circa') normalize to '1924?'
+    value = re.sub(r"(?i)(\d{4})\s*(?:circa|ca\.?|c\.?)\b", r"\1?", value)
     return value.strip()
 
 
@@ -435,7 +460,8 @@ def _normalize_date(value: str) -> str:
     value = (value or "").strip()
     # If value contains multiple full numeric dates separated by commas, leave as-is
     # e.g. "11-12-1959, 11-19-1959" or "04/02/1959, 04/09/1959"
-    if "," in value:
+    # If multiple full numeric dates appear separated by commas or newlines, leave as-is
+    if "," in value or "\r" in value or "\n" in value:
         multi_dates = re.findall(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", value)
         if len(multi_dates) > 1:
             return value
@@ -461,8 +487,11 @@ def _normalize_date(value: str) -> str:
         "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
     )
     # Match month followed by a day-day range, optionally with a year suffix.
+    # Include ampersand and the word 'and' as range separators (e.g. "October 17 & 18, 1989").
     day_range_regex = (
-        rf"^({month_names})\b\s+\d{{1,2}}\s*[-–]\s*\d{{1,2}}(?:\s*,\s*\d{{4}})?$"
+        rf"^({month_names})\b"
+        r"\s+\d{1,2}\s*(?:[-–]|&|\band\b)\s*"
+        r"\d{1,2}(?:\s*,\s*\d{4})?$"
     )
     if re.match(day_range_regex, value, re.IGNORECASE):
         return value
@@ -581,6 +610,10 @@ def _normalize_date_ranges(value: str) -> str:
     )
     # Spaced dash: 1959 - 1963 -> 1959-1963
     value = re.sub(r"(\d{4})\s*-\s*(\d{4})", r"\1-\2", value)
+    # Range where second part is a decade (e.g. 1960-1970s) -> normalize to 1960-1970
+    value = re.sub(
+        r"(\d{4})-(\d{3})0s\b", lambda m: f"{m.group(1)}-{m.group(2)}0", value
+    )
     # Two-digit second year: Assume same century as first year: 1975-76 -> 1975-1976
     # Only expand two-digit second years when they are unlikely to be months
     # (e.g., 76 -> 1976). If the second group looks like a month (01-12), leave it alone.

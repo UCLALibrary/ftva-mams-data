@@ -237,6 +237,7 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ("JUNE 28-29", "JUNE 28-29"),  # date range of days should not be modified
             ("MAY 9-10, 1980", "MAY 9-10, 1980"),
             ("APRIL 30 & MAY 1-3, 1980", "APRIL 30 & MAY 1-3, 1980"),
+            ("October 17 & 18, 1989", "October 17 & 18, 1989"),
             ("MAY 7,8 & 9", "MAY 7,8 & 9"),
             ("FALL 1978", "FALL 1978"),  # season and year should not be modified
             (
@@ -244,6 +245,27 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "11-12-1959, 11-19-1959",
             ),  # don't modify lists of dates
             ("04-02-1959, 04-09-1959", "04-02-1959, 04-09-1959"),
+            (
+                "C. 1970s",
+                "197-?",
+            ),  # decade with circa should be normalized to decade format
+            (
+                "ca. 1920’s?",
+                "192-?",
+            ),  # decade with circa and question mark should be normalized to decade format
+            (
+                "1960-1970s",
+                "1960-1970",
+            ),  # decade range should be normalized to decade format
+            (
+                "10-09-1995\r10-14-2002",
+                "10-09-1995\r10-14-2002",
+            ),  # multiple dates separated by carriage return should not be modified
+            ("1924 circa", "1924?"),  # circa after date should be normalized
+            (
+                "c 1978.",
+                "c1978",
+            ),  # period after year should be removed in copyright format
         ]
 
     def test_production_type_mapping(self):
