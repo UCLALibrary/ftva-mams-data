@@ -275,6 +275,16 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "c 1978.",
                 "c1978",
             ),  # period after year should be removed in copyright format
+            (
+                "12/10/59",
+                "1959-12-10",
+            ),  # two-digit year > 26 should be treated as 1900s, not 2000s
+            ("12-10-59", "1959-12-10"),
+            (
+                "12/10/25",
+                "12/10/25",
+            ),  # two-digit year <= 26 should be unchanged
+            ("12-10-25", "12-10-25"),
         ]
 
     def test_production_type_mapping(self):
@@ -300,3 +310,14 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             with self.subTest(input=input, expected=expected):
                 new_value = _apply_transformers("record_date", input)
                 self.assertEqual(new_value, expected)
+
+    def test_two_digit_year_warning(self):
+        # Two-digit year <= cutoff should be left unchanged and log a warning
+        val = "12/10/25"
+        with self.assertLogs("filemaker_batch_update", level="WARNING") as cm:
+            new_value = _apply_transformers("record_date", val)
+        self.assertEqual(new_value, val)
+        # Ensure a warning was emitted about the two-digit year handling
+        self.assertTrue(
+            any("Two-digit year" in m or "left unchanged" in m for m in cm.output)
+        )

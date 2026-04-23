@@ -481,6 +481,30 @@ def _normalize_date(value: str) -> str:
     ):
         return value
 
+    # Handle two-digit year forms specially per Y2K-like rule: if the two-digit
+    # year is greater than the last two digits of the current year, interpret
+    # as 19YY; otherwise leave unchanged and log a warning for manual review.
+    m_two = re.search(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2})\b", value)
+    if m_two:
+        month = int(m_two.group(1))
+        day = int(m_two.group(2))
+        yy = int(m_two.group(3))
+        cutoff = datetime.now().year % 100
+        if yy > cutoff:
+            year = 1900 + yy
+            if day == 0:
+                if 1 <= month <= 12:
+                    return f"{year:04d}-{month:02d}"
+            try:
+                return f"{year:04d}-{month:02d}-{day:02d}"
+            except (ValueError, TypeError, OverflowError):
+                return value
+        else:
+            logger.warning(
+                f"Two-digit year {yy:02d} in {value!r} <= cutoff {cutoff:02d}; left unchanged."
+            )
+            return value
+
     # If the value begins with a month name, prefer `dateparser` to produce
     # YYYY-MM or YYYY-MM-DD (avoid regex-heavy transformations here).
     # However, guard against month + day-range strings (e.g. "June 28-29",
@@ -606,8 +630,6 @@ def _handle_U_X_placeholders(value: str) -> str:
     value = re.sub(r"(\d{2})[UuXx]{2}", r"\1--?", value)
     # Single U/u/X/x: 197u -> 197-
     value = re.sub(r"(\d{3})[UuXx]", r"\1-", value)
-    # Collapse ranges composed mostly of placeholders to more compact
-    # uncertain forms expected by tests.
     # Full-year followed by placeholder-only range -> keep the known year
     # (e.g. 1959-UUUU -> 1959)
     m_full_right = re.match(r"^(\d{4})-[UuXx]+$", value)
@@ -625,7 +647,6 @@ def _handle_U_X_placeholders(value: str) -> str:
 
 def _normalize_date_ranges(value: str) -> str:
     """Normalize date ranges to a consistent format, if possible."""
-    # Preserve slash-delimited ranges (e.g. 1955/1956) — do not convert them to hyphens.
     # Bracket range: [1975-76] -> 1975-1976
     value = re.sub(
         r"\[(\d{4})-(\d{2})\]",
@@ -641,7 +662,6 @@ def _normalize_date_ranges(value: str) -> str:
     # Two-digit second year: Assume same century as first year: 1975-76 -> 1975-1976
     # Only expand two-digit second years when they are unlikely to be months
     # (e.g., 76 -> 1976). If the second group looks like a month (01-12), leave it alone.
-
     value = re.sub(r"(\d{4})-(\d{2})\b", _expand_two_digit_year, value)
     return value.strip()
 
