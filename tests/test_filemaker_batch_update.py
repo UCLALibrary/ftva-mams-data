@@ -192,7 +192,9 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ("n/a", "N/A"),  # special case, known value
             ("UUUU", "Unknown"),  # special case, known value
             ("nd", "Unknown"),  # special case, known value
-            ("?", "Unknown"),  # special casem known value
+            ("?", "Unknown"),  # special case, known value
+            ("uuuu", "Unknown"),  # special case, known value
+            ("", "Unknown"),  # empty value
             ("[1992]", "1992"),  # brackets should be removed
             ("(1992)", "1992"),  # parentheses should be removed
             ("c 1939", "c1939"),  # normalize copyright format
@@ -211,6 +213,7 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ("06/15/1980", "1980-06-15"),  # normalize date format
             ("03-25-1990", "1990-03-25"),
             ("04/1985", "1985-04"),
+            ("01/00/1951", "1951-01"),  # handle zero day/month as unknown
             ("19", "19--?"),  # partial year with two digits
             ("20-", "20--"),  # partial year with two digits and trailing hyphen
             ("195-", "195-"),  # partial year with three digits but no question mark
@@ -228,7 +231,13 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             ("20XX", "20--?"),
             ("19uu-1971", "19--?-1971"),  # handle partial year ranges with placeholders
             ("19UU-UUUU", "19--?"),  # partial range, collapses to single indeterminate
-            ("1955/1956", "1955-1956"),  # handle various date range formats
+            ("193U-UUUU", "193-?"),  # partial range with placeholders
+            (
+                "1959-UUUU",
+                "1959",
+            ),  # partial range with known start year should collapse to that year
+            ("1955/1956", "1955/1956"),  # don't modify slash-delimited date ranges
+            ("1984/1977/1978", "1984/1977/1978"),
             ("[2011-13]", "2011-2013"),
             ("1959 - 1963", "1959-1963"),
             ("1975-76", "1975-1976"),

@@ -148,13 +148,16 @@ MAPPINGS = {
     },
     "date": {
         "UUUU": "Unknown",
+        "uuuu": "Unknown",
         "UUUU-UUUU": "Unknown",
+        "uuuu-uuuu": "Unknown",
         "unknown": "Unknown",
         "UNKNOWN": "Unknown",
         "ND": "Unknown",
         "N": "Unknown",
         "nd": "Unknown",
         "no date": "Unknown",
+        "": "Unknown",
         "?": "Unknown",
         "n/a": "N/A",
     },
@@ -513,7 +516,15 @@ def _normalize_date(value: str) -> str:
 
     # Normalize common numeric date formats using `dateparser` where possible
     # MM/DD/YYYY or MM-DD-YYYY -> YYYY-MM-DD
-    if re.search(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b", value):
+    m_full = re.search(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b", value)
+    if m_full:
+        month = int(m_full.group(1))
+        day = int(m_full.group(2))
+        year = int(m_full.group(3))
+        # Treat day '00' or '0' as unknown day: return YYYY-MM
+        if day == 0:
+            if 1 <= month <= 12:
+                return f"{year:04d}-{month:02d}"
         try:
             # For explicit numeric dates, set `PREFER_DAY_OF_MONTH` to keep
             # parsing deterministic (choose first-of-month when needed).
@@ -595,13 +606,26 @@ def _handle_U_X_placeholders(value: str) -> str:
     value = re.sub(r"(\d{2})[UuXx]{2}", r"\1--?", value)
     # Single U/u/X/x: 197u -> 197-
     value = re.sub(r"(\d{3})[UuXx]", r"\1-", value)
+    # Collapse ranges composed mostly of placeholders to more compact
+    # uncertain forms expected by tests.
+    # Full-year followed by placeholder-only range -> keep the known year
+    # (e.g. 1959-UUUU -> 1959)
+    m_full_right = re.match(r"^(\d{4})-[UuXx]+$", value)
+    if m_full_right:
+        return m_full_right.group(1)
+    # Three-digit left with placeholder-only right -> partial-year with ?
+    # (e.g. 193U-UUUU -> 193-?)
+    m_three_left = re.match(r"^(\d{3})-+[UuXx]+$", value)
+    if m_three_left:
+        return m_three_left.group(1) + "-?"
+    # If leftover sequences like '--UUUU' exist, collapse to '-?'
+    value = re.sub(r"-+[UuXx]+", "-?", value)
     return value
 
 
 def _normalize_date_ranges(value: str) -> str:
     """Normalize date ranges to a consistent format, if possible."""
-    # Slash range: 1955/1956 -> 1955-1956
-    value = re.sub(r"(\d{4})/(\d{4})", r"\1-\2", value)
+    # Preserve slash-delimited ranges (e.g. 1955/1956) — do not convert them to hyphens.
     # Bracket range: [1975-76] -> 1975-1976
     value = re.sub(
         r"\[(\d{4})-(\d{2})\]",
