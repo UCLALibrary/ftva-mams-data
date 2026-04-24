@@ -185,6 +185,115 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "1. John A.B.C. Doe, Jane Star, LeeRoy Jenkins",
             ),  # composite test: multiple transformations
         ]
+        self.test_date_values = [
+            ("1999", "1999"),  # valid year, no transform needed
+            ("1999-01-01", "1999-01-01"),  # valid date, no transform needed
+            ("1974 ", "1974"),  # trailing whitespace
+            ("n/a", "N/A"),  # special case, known value
+            ("UUUU", "Unknown"),  # special case, known value
+            ("nd", "Unknown"),  # special case, known value
+            ("?", "Unknown"),  # special case, known value
+            ("uuuu", "Unknown"),  # special case, known value
+            ("", "Unknown"),  # empty value
+            ("[1992]", "1992"),  # brackets should be removed
+            ("(1992)", "1992"),  # parentheses should be removed
+            ("c 1939", "c1939"),  # normalize copyright format
+            ("COPYRIGHT 2007", "c2007"),
+            ("C1988", "c1988"),
+            ("c1978", "c1978"),
+            ("CIRCA 1970", "1970?"),  # normalize circa format
+            ("ca. 1950", "1950?"),
+            ("CA. 2020", "2020?"),
+            ("circa 1925", "1925?"),
+            ("circa 1920-1930", "1920 or 1930"),  # circa range format
+            ("January 1956", "1956-01"),  # convert natural language date
+            ("Feb 1967", "1967-02"),
+            ("Mar 24 1953", "1953-03-24"),
+            ("June 28, 1975", "1975-06-28"),
+            ("06/15/1980", "1980-06-15"),  # normalize date format
+            ("03-25-1990", "1990-03-25"),
+            ("04/1985", "1985-04"),
+            ("01/00/1951", "1951-01"),  # handle zero day/month as unknown
+            ("19", "19--?"),  # partial year with two digits
+            ("20-", "20--"),  # partial year with two digits and trailing hyphen
+            ("195-", "195-"),  # partial year with three digits but no question mark
+            (
+                "196-?",
+                "196-?",
+            ),  # partial year with three digits, dash, and question mark, no modification
+            ("1990s", "199-"),  # decade
+            ("19??", "19--?"),  # partial year with two digits and question marks
+            ("1946?", "1946?"),  # partial year with four digits and ?, no modification
+            ("195?", "195?"),  # partial year with three digits and ?, no modification
+            ("197u", "197-"),  # partial year with single u/x placeholder
+            ("20UU", "20--?"),  # partial year with two placeholders
+            ("19uu", "19--?"),
+            ("20XX", "20--?"),
+            ("19uu-1971", "19--?-1971"),  # handle partial year ranges with placeholders
+            ("19UU-UUUU", "19--?"),  # partial range, collapses to single indeterminate
+            ("193U-UUUU", "193-?"),  # partial range with placeholders
+            (
+                "1959-UUUU",
+                "1959",
+            ),  # partial range with known start year should collapse to that year
+            ("1955/1956", "1955/1956"),  # don't modify slash-delimited date ranges
+            ("1984/1977/1978", "1984/1977/1978"),
+            ("[2011-13]", "2011-2013"),
+            ("1959 - 1963", "1959-1963"),
+            ("1975-76", "1975-1976"),
+            ("2015-03-12", "2015-03-12"),  # valid date, no transform needed
+            ("1939-11-28", "1939-11-28"),
+            ("JUNE 28-29", "JUNE 28-29"),  # date range of days should not be modified
+            ("MAY 9-10, 1980", "MAY 9-10, 1980"),
+            ("APRIL 30 & MAY 1-3, 1980", "APRIL 30 & MAY 1-3, 1980"),
+            ("October 17 & 18, 1989", "October 17 & 18, 1989"),
+            ("MAY 7,8 & 9", "MAY 7,8 & 9"),
+            ("FALL 1978", "FALL 1978"),  # season and year should not be modified
+            (
+                "11-12-1959, 11-19-1959",
+                "11-12-1959, 11-19-1959",
+            ),  # don't modify lists of dates
+            ("04-02-1959, 04-09-1959", "04-02-1959, 04-09-1959"),
+            (
+                "C. 1970s",
+                "197-?",
+            ),  # decade with circa should be normalized to decade format
+            (
+                "ca. 1920’s?",
+                "192-?",
+            ),  # decade with circa and question mark should be normalized to decade format
+            (
+                "1960-1970s",
+                "1960-1970",
+            ),  # decade range should be normalized to decade format
+            (
+                "10-09-1995\r10-14-2002",
+                "10-09-1995\r10-14-2002",
+            ),  # multiple dates separated by carriage return should not be modified
+            ("1924 circa", "1924?"),  # circa after date should be normalized
+            (
+                "c 1978.",
+                "c1978",
+            ),  # period after year should be removed in copyright format
+            (
+                "12/10/59",
+                "1959-12-10",
+            ),  # two-digit year > 26 should be treated as 1900s, not 2000s
+            ("12-10-59", "1959-12-10"),
+            (
+                "12/10/25",
+                "12/10/25",
+            ),  # two-digit year <= 26 should be unchanged
+            ("12-10-25", "12-10-25"),
+            (
+                "08-15-16-1959",
+                "08-15-16-1959",
+            ),  # invalid date with extra component should not be modified
+            (
+                "4/23-25/1993",
+                "4/23-25/1993",
+            ),  # date range with day and month should not be modified
+        ]
 
     def test_production_type_mapping(self):
         for input, expected in self.test_production_type_values:
@@ -203,3 +312,18 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
             with self.subTest(input=input, expected=expected):
                 new_value = _apply_transformers("director", input)
                 self.assertEqual(new_value, expected)
+
+    def test_date_mapping(self):
+        for input, expected in self.test_date_values:
+            with self.subTest(input=input, expected=expected):
+                new_value = _apply_transformers("record_date", input)
+                self.assertEqual(new_value, expected)
+
+    def test_two_digit_year_warning(self):
+        # Two-digit year <= cutoff should be left unchanged and log a warning
+        val = "12/10/25"
+        with self.assertLogs("filemaker_batch_update", level="DEBUG") as cm:
+            new_value = _apply_transformers("record_date", val)
+        self.assertEqual(new_value, val)
+        # Ensure a message was logged about the two-digit year handling
+        self.assertTrue(any("Two-digit year" in m for m in cm.output))
