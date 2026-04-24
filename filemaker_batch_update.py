@@ -500,7 +500,7 @@ def _normalize_date(value: str) -> str:
             except (ValueError, TypeError, OverflowError):
                 return value
         else:
-            logger.warning(
+            logger.debug(
                 f"Two-digit year {yy:02d} in {value!r} <= cutoff {cutoff:02d}; left unchanged."
             )
             return value
