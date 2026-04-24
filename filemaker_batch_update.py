@@ -484,6 +484,13 @@ def _normalize_date(value: str) -> str:
     # Handle two-digit year forms specially per Y2K-like rule: if the two-digit
     # year is greater than the last two digits of the current year, interpret
     # as 19YY; otherwise leave unchanged and log a warning for manual review.
+    # Avoid accidental matches inside strings that actually contain four
+    # numeric components (e.g. '08-15-16-1991' or '4/23-25/1993') by returning
+    # early when 4+ numeric components are present.
+    comps = re.split(r"[/-]", value)
+    numeric_comps = [c for c in comps if re.fullmatch(r"\d+", c)]
+    if len(numeric_comps) >= 4:
+        return value
     m_two = re.search(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2})\b", value)
     if m_two:
         month = int(m_two.group(1))
@@ -501,7 +508,7 @@ def _normalize_date(value: str) -> str:
                 return value
         else:
             logger.debug(
-                f"Two-digit year {yy:02d} in {value!r} <= cutoff {cutoff:02d}; left unchanged."
+                f"Two-digit year in {value!r} <= {cutoff:02d}; left unchanged."
             )
             return value
 

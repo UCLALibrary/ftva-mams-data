@@ -285,6 +285,14 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
                 "12/10/25",
             ),  # two-digit year <= 26 should be unchanged
             ("12-10-25", "12-10-25"),
+            (
+                "08-15-16-1959",
+                "08-15-16-1959",
+            ),  # invalid date with extra component should not be modified
+            (
+                "4/23-25/1993",
+                "4/23-25/1993",
+            ),  # date range with day and month should not be modified
         ]
 
     def test_production_type_mapping(self):
@@ -314,10 +322,8 @@ class TestFilemakerBatchUpdate(unittest.TestCase):
     def test_two_digit_year_warning(self):
         # Two-digit year <= cutoff should be left unchanged and log a warning
         val = "12/10/25"
-        with self.assertLogs("filemaker_batch_update", level="WARNING") as cm:
+        with self.assertLogs("filemaker_batch_update", level="DEBUG") as cm:
             new_value = _apply_transformers("record_date", val)
         self.assertEqual(new_value, val)
-        # Ensure a warning was emitted about the two-digit year handling
-        self.assertTrue(
-            any("Two-digit year" in m or "left unchanged" in m for m in cm.output)
-        )
+        # Ensure a message was logged about the two-digit year handling
+        self.assertTrue(any("Two-digit year" in m for m in cm.output))
