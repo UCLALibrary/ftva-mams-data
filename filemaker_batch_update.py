@@ -857,11 +857,13 @@ def _initialize_client(config: dict) -> FilemakerClient:
     :return: An initialized `FilemakerClient` instance.
     :raises FileMakerError: If the connection to Filemaker fails.
     """
+    # Get the filemaker-specific configuration dictionary.
+    fm_config = config.get("filemaker", {})
     try:
         client = FilemakerClient(
-            user=config["filemaker"]["user"],
-            password=config["filemaker"]["password"],
-            timeout=240,
+            user=fm_config.get("user", ""),
+            password=fm_config.get("password", ""),
+            timeout=fm_config.get("timeout", 120),  # default to 2 minute timeout
         )
         logger.info("Connected to Filemaker.")
         return client
@@ -955,6 +957,10 @@ def _process_record(
         pending_changes[field_name] = new_value
 
     if pending_changes and not dry_run:
+        # Hacky attempt to work around timeouts with updates.
+        # These usually are very brief interruptions, no need to wait more than a few seconds.
+        old_timeout = fm_client._fms.timeout
+        fm_client._fms.timeout = 5
         try:
             # Retry up to 10 times with long backoff between attempts,
             # in order to handle non-`FileMakerError` exceptions such as `RequestException`,
@@ -978,6 +984,10 @@ def _process_record(
             )
             # Return 0 here to show that no changes were made
             return 0
+        # Restore original timeout
+        finally:
+            # Go back to original long timeout for record retrieval
+            fm_client._fms.timeout = old_timeout
 
         # fm_client.edit_record will return False if the update fails without raising an exception,
         # so log that as well and return 0 to show that no changes were made
