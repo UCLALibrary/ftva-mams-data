@@ -99,6 +99,13 @@ def _get_arguments() -> argparse.Namespace:
         required=False,
         help="Page size (i.e. `limit` param) for fetching records from Filemaker. Default is 5000.",
     )
+    parser.add_argument(
+        "--offset",
+        type=int,
+        default=1,
+        required=False,
+        help="Offset (position in list of records, NOT `record_id`) to start fetching records from Filemaker. Default is 1.",
+    )
     return parser.parse_args()
 
 
@@ -857,11 +864,13 @@ def _initialize_client(config: dict) -> FilemakerClient:
     :return: An initialized `FilemakerClient` instance.
     :raises FileMakerError: If the connection to Filemaker fails.
     """
+    # Get the filemaker-specific configuration dictionary.
+    fm_config = config.get("filemaker", {})
     try:
         client = FilemakerClient(
-            user=config["filemaker"]["user"],
-            password=config["filemaker"]["password"],
-            timeout=240,
+            user=fm_config.get("user", ""),
+            password=fm_config.get("password", ""),
+            timeout=fm_config.get("timeout", 120),  # default to 2 minute timeout
         )
         logger.info("Connected to Filemaker.")
         return client
@@ -887,14 +896,17 @@ def _validate_fields(field_names: list[str], fm_record: Record) -> None:
         )
 
 
-def _get_all_records(fm_client: FilemakerClient, page_size: int) -> Iterator[Record]:
+def _get_all_records(
+    fm_client: FilemakerClient, page_size: int, offset: int = 1
+) -> Iterator[Record]:
     """Yield every record in the Filemaker database, paginating automatically.
 
     :param fm_client: A configured FilemakerClient instance.
+    :param page_size: Number of records to retrieve at a time.
+    :param offset: Position (NOT record_id) to start at. Default: 1.
     :yields: Individual fmrest `Record` objects.
     """
     logger.info(f"Retrieving records in pages of {page_size}...")
-    offset = 1
     while True:
         records = fm_client.get_records(
             offset=offset,
@@ -955,6 +967,10 @@ def _process_record(
         pending_changes[field_name] = new_value
 
     if pending_changes and not dry_run:
+        # Hacky attempt to work around timeouts with updates.
+        # These usually are very brief interruptions, no need to wait more than a few seconds.
+        old_timeout = fm_client._fms.timeout
+        fm_client._fms.timeout = 5
         try:
             # Retry up to 10 times with long backoff between attempts,
             # in order to handle non-`FileMakerError` exceptions such as `RequestException`,
@@ -978,6 +994,10 @@ def _process_record(
             )
             # Return 0 here to show that no changes were made
             return 0
+        # Restore original timeout
+        finally:
+            # Go back to original long timeout for record retrieval
+            fm_client._fms.timeout = old_timeout
 
         # fm_client.edit_record will return False if the update fails without raising an exception,
         # so log that as well and return 0 to show that no changes were made
@@ -997,6 +1017,7 @@ def _process_batch(
     fm_client: FilemakerClient,
     dry_run: bool,
     page_size: int,
+    offset: int = 1,
 ) -> dict[str, int]:
     """Apply transformations to the provided fields on the Filemaker records.
 
@@ -1004,6 +1025,7 @@ def _process_batch(
     :param fm_client: Configured `FilemakerClient` instance.
     :param dry_run: If True, log changes without writing to Filemaker.
     :param page_size: Page size (i.e. `limit` param) for fetching records from Filemaker.
+    :param offset: Position (NOT record_id) to start at. Default: 1.
     :return: Stats summarizing records processed, updated, and changes applied.
     """
     stats = {
@@ -1014,7 +1036,7 @@ def _process_batch(
     }
     fields_validated = False
 
-    for fm_record in _get_all_records(fm_client, page_size):
+    for fm_record in _get_all_records(fm_client, page_size, offset):
         # Validate fields against first record.
         # Invalid fields will raise an exception and cause the program to exit,
         # with a message explaining which fields are missing and which are available.
@@ -1061,7 +1083,7 @@ def main() -> None:
     fm_client = _initialize_client(config)
 
     stats = _process_batch(
-        fields_with_transformers, fm_client, args.dry_run, args.page_size
+        fields_with_transformers, fm_client, args.dry_run, args.page_size, args.offset
     )
 
     action = "Would update" if args.dry_run else "Updated"
