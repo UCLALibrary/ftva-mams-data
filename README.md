@@ -80,6 +80,25 @@ Examples below assume you're running them in an existing `bash` shell within the
 a container, add `docker compose exec ftva_data ` to the beginning of the command (e.g., 
 `docker compose exec ftva_data python filemaker_get_all_records.py --config_file CONFIG_FILE` ).
 
+### Report Filemaker validation rule violations
+
+```
+python filemaker_validation_report.py \
+    --config_file CONFIG_FILE \
+    [--start_date MM/DD/YYYY --end_date MM/DD/YYYY] \
+    [--output_csv OUTPUT_FILE]
+```
+
+This script checks records in the FTVA processing database against the "Validation Rules (Analog and Digital)" and reports any violations to a CSV file. Each row in the output represents one violation, identified by FileMaker record ID and inventory ID, with the field name, raw value, and a description of the rule that was broken.
+By default the script iterates all records in the database (slow; expect 20-30 minutes for ~607,000 records). To target only recently added or edited records, pass --start_date and --end_date together; the script will use FileMaker's find API to query only records whose date_modified field falls within that range, which is much faster. Note that very wide date windows (e.g., a full year) may time out.
+Output is written to reports/validation_report_{DATE}_{TIME}.csv by default, or to the path provided via --output_csv. The reports/ directory is created automatically if it does not exist. The script also writes a log file to logs/.
+
+Arguments:
+
+- --config_file (required): path to the TOML config file (see Secrets above).
+- --start_date / --end_date: date range filter on date_modified, in MM/DD/YYYY format. Both must be provided together, or neither.
+- --output_csv: path for the CSV output file.
+
 ### Retrieve all Filemaker records
 
 ```python filemaker_get_all_records.py --config_file CONFIG_FILE```
