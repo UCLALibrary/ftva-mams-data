@@ -177,7 +177,6 @@ LAYOUT_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
         # file_path and file_size are in portal_pDMUnit; see PORTAL_FIELD_VALIDATORS.
         "Barcode": [_check_null],
         "Location": [_check_null],
-        "storage_format": [_check_null],
     },
 }
 

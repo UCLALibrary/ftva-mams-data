@@ -100,7 +100,7 @@ where `LAYOUT` is one of:
 | `NEW DIGITAL_API` | NDM Digital Carrier |
 | `NEW DIGITAL STORAGE_API` | NDM Digital Storage Format |
 
-This script checks records in the specified FileMaker layout against the validation rules defined by FTVA staff and writes any violations to a CSV file. Each row in the output represents one violation, identified by FileMaker record ID, inventory ID, and inventory number, along with the field name, a description of the rule that was broken, and the modification user and timestamp so violations can be traced to recent edits. For violations found inside a FileMaker portal (currently `portal_Portal_DM_Items` on the NDM Digital Carrier layout), a `portal_record_id` column identifies the specific portal row.
+This script checks records in the specified FileMaker layout against the validation rules defined by FTVA staff and writes any violations to a CSV file. Each row in the output represents one violation, identified by FileMaker inventory ID and inventory number, along with the field name, a description of the rule that was broken, and the modification user and timestamp so violations can be traced to recent edits.
 
 By default the script iterates all records in the layout. To target only recently added or edited records, pass `--start_date` and `--end_date` together; the script will use FileMaker's find API to query only records modified within that date range, which is much faster. 
 
@@ -113,10 +113,6 @@ Output is written to `reports/validation_report_{LAYOUT}_{DATE}_{TIME}.csv` by d
 - `--page_size`: number of records to fetch per API request (default: 5000).
 - `--offset`: starting record position for a full scan; ignored when a date range is given (default: 1).
 - `--output_csv`: path for the CSV output file.
-
-**Notes on specific layouts:**
-- The NDM Digital Carrier layout (`NEW DIGITAL_API`) validates both flat record fields and fields inside the `portal_Portal_DM_Items` portal (`Item_unit_number`, `file_size_display`, `Creation_date`, `audio_class`, `file_path`). 
-- The NDM Digital Storage Format layout (`NEW DIGITAL STORAGE_API`) validates `file_path` and `file_size` from the `portal_pDMUnit` portal, in addition to its flat fields.
 
 ### Retrieve all Filemaker records
 
