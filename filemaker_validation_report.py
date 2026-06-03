@@ -1,11 +1,8 @@
 import argparse
 import csv
 import logging
-import re
 import sys
-from collections.abc import (
-    Callable,
-)  # For type hinting single-field validator callables
+from collections.abc import Callable  # for type hinting validator functions
 from datetime import datetime
 from pathlib import Path
 
@@ -13,22 +10,59 @@ from fmrest.record import Record
 
 import filemaker_utils as fm_utils
 
-# ---------------------------------------------------------------------------
-# Module-level logger
-# ---------------------------------------------------------------------------
+# Use module-level logger.
 logger = logging.getLogger(Path(__file__).stem)
 
-# Output columns, matching the spec's required fields plus record_id for
-# debugging convenience.
+
+# ---------------------------------------------------------------------------
+# Output and Metadata Constants
+# ---------------------------------------------------------------------------
+
+# Output columns for CSV report.
 REPORT_FIELDNAMES = [
-    "record_id",
     "inventory_id",
     "inventory_no",
+    "field",
     "user_last_modified",
     "date_modified",
-    "field",
     "violation",
 ]
+
+# Per-layout field name differences for the standard output columns.
+# This allows the validation logic to refer to these fields by a consistent name
+# (e.g. "inventory_id", "date_modified") even though the actual field names vary by layout.
+LAYOUT_METADATA: dict[str, dict[str, str]] = {
+    "InventoryForLabeling_API": {
+        "inventory_id_field": "inventory_id",
+        "inventory_no_field": "inventory_no",
+        "user_last_modified_field": "user_last_modified",
+        "date_modified_field": "date_modified",
+    },
+    "NEW DIGITAL_API": {
+        "inventory_id_field": "inventory_id",
+        "inventory_no_field": "inventory_no",
+        "user_last_modified_field": "user_last_modified",
+        "date_modified_field": "date_modified",
+    },
+    "NEW DIGITAL STORAGE_API": {
+        "inventory_id_field": "Inventory_id_fk",
+        "inventory_no_field": "Inventory_no_fk",
+        "user_last_modified_field": "ModifiedBy",
+        "date_modified_field": "ModificationTimestamp",
+    },
+}
+
+# Portal name on the NEW DIGITAL_API layout that contains the DC-only fields.
+PORTAL_DM_ITEMS = "portal_Portal_DM_Items"
+
+# Table occurrence prefix used by FM for fields in the DM Items portal.
+DM_PREFIX = "Digital Media_Item Unit::"
+
+# Portal name on the NEW DIGITAL STORAGE_API layout containing file path/size.
+PORTAL_DM_UNIT = "portal_pDMUnit"
+
+# Table occurrence prefix used by FM for fields in the DS portal.
+DM_CARRIER_PREFIX = "Digital Media_carrier::"
 
 
 # ---------------------------------------------------------------------------
@@ -37,26 +71,49 @@ REPORT_FIELDNAMES = [
 
 
 def _is_null(value: str) -> bool:
-    """Return True if *value* is empty or whitespace-only."""
+    """Return True if value is empty or whitespace-only."""
     return not value or not value.strip()
 
 
-def _field(record: Record, name: str) -> str:
-    """Return a field value from *record* as a stripped string, or '' if absent."""
+def _get_field(record: Record, name: str) -> str:
+    """Return a flat field value from a record as a stripped string, or '' if absent."""
     try:
         return str(record[name] or "").strip()
     except (KeyError, AttributeError):
         return ""
 
 
-def _make_violation(record: Record, field: str, message: str) -> dict:
-    """Build a violation dict in the spec's output format."""
+def _get_portal_field(portal_record: Record, bare_name: str, prefix: str) -> str:
+    """Return a field value from a portal row record.
+
+    FileMaker portal rows store fields as 'TableOccurrence::fieldName'.
+    This helper accepts the bare field name and prepends the prefix.
+    """
+    return _get_field(portal_record, f"{prefix}{bare_name}")
+
+
+def _make_violation(
+    layout: str,
+    record: Record,
+    field: str,
+    message: str,
+    portal_record_id: str = "",
+) -> dict:
+    """Build a violation dict for use in the output report CSV.
+
+    :param layout: FM layout name.
+    :param record: The top-level fmrest Record.
+    :param field: The field name (may include portal prefix for portal fields).
+    :param message: Human-readable description of the violation.
+    """
+    metadata = LAYOUT_METADATA[layout]
     return {
         "record_id": record.record_id,
-        "inventory_id": _field(record, "inventory_id"),
-        "inventory_no": _field(record, "inventory_no"),
-        "user_last_modified": _field(record, "user_last_modified"),
-        "date_modified": _field(record, "date_modified"),
+        "portal_record_id": portal_record_id,
+        "inventory_id": _get_field(record, metadata["inventory_id_field"]),
+        "inventory_no": _get_field(record, metadata["inventory_no_field"]),
+        "user_last_modified": _get_field(record, metadata["user_last_modified_field"]),
+        "date_modified": _get_field(record, metadata["date_modified_field"]),
         "field": field,
         "violation": message,
     }
@@ -64,7 +121,6 @@ def _make_violation(record: Record, field: str, message: str) -> dict:
 
 # ---------------------------------------------------------------------------
 # Single-field validators
-# Each callable takes a string value and returns a list of error messages.
 # ---------------------------------------------------------------------------
 
 
@@ -76,257 +132,271 @@ def _check_null(value: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Field -> validator mapping
+# Layout -> flat field -> validators mapping
 # ---------------------------------------------------------------------------
-# Organised by layout, matching the spec table.  Each entry maps a FM field
-# name to an ordered list of single-field validator callables.
-#
-# Layout abbreviations used in comments:
-#   GE  = Analog GE Form
-#   DC  = NDM Digital Carrier Layout
-#   DS  = NDM Digital Storage Format Layout
+# Fields that live directly on the record (not in portals).
 
-FIELD_VALIDATORS: dict[str, list[Callable[[str], list[str]]]] = {
-    # ---- Fields present on GE and DC layouts ----
-    "production_type": [
-        _check_null
-    ],  # GE, DC  (cross-field rule also applies; see below)
-    "Language": [_check_null],  # GE, DC
-    "donor_code": [_check_null],  # GE, DC
-    "Acquisition type": [_check_null],  # GE, DC
-    "type": [_check_null],  # GE, DC
-    "item_unit_holdings": [_check_null],  # GE, DC
-    "title": [_check_null],  # GE, DC
-    "date_received": [_check_null],  # GE, DC
-    "director": [_check_null],  # GE, DC
-    "release_broadcast_year": [
-        _check_null
-    ],  # GE, DC  (cross-field rule also applies; see below)
-    # ---- Fields present on DC layout only ----
-    # TODO: Enable once NDM Digital Carrier layout is available via API.
-    # "Item_unit_number":   [_check_null],  # DC only
-    # "file_size":          [_check_null],  # DC only
-    # "Creation_date":      [_check_null],  # DC only
-    # "audio_class":        [_check_null],  # DC only
-    # "retention_status":   [_check_null],  # DC only  (cross-field rule also applies; see below)
-    # "asset_type":         [_check_null],  # DC only
-    # "sound_format":       [_check_null],  # DC only  (conditional; see _check_cross_field_rules)
-    # ---- Fields present on DS layout only ----
-    # TODO: Enable once NDM Digital Storage Format layout is available via API.
-    # "file_path":          [_check_null],  # DC and DS
-    # "Barcode":            [_check_null],  # DS only
-    # "Location":           [_check_null],  # DS only
-    # ---- Fields present on GE layout only ----
-    "format": [_check_null],  # GE only
-    "inventory_no": [_check_null],  # GE only
+LAYOUT_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
+    # Analog GE Form layout
+    "InventoryForLabeling_API": {
+        "production_type": [_check_null],  # cross-field rule also applies
+        "Language": [_check_null],
+        "donor_code": [_check_null],
+        "Acquisition type": [_check_null],
+        "type": [_check_null],
+        "item_unit_holdings": [_check_null],
+        "title": [_check_null],
+        "date_received": [_check_null],
+        "director": [_check_null],
+        "release_broadcast_year": [_check_null],  # cross-field rule also applies
+        "format": [_check_null],
+        "inventory_no": [_check_null],
+    },
+    # NDM Digital Carrier layout
+    "NEW DIGITAL_API": {
+        # Fields shared with GE layout
+        "production_type": [_check_null],  # cross-field rule also applies
+        "Language": [_check_null],
+        "donor_code": [_check_null],
+        "Acquisition type": [_check_null],
+        "type": [_check_null],
+        "item_unit_holdings": [_check_null],
+        "title": [_check_null],
+        "date_received": [_check_null],
+        "director": [_check_null],
+        "release_broadcast_year": [_check_null],  # cross-field rule also applies
+        # DC-only flat fields
+        "retention_status": [_check_null],  # cross-field rule also applies
+        "asset_type": [_check_null],
+        # sound_format(1): conditional only; see _check_cross_field_rules
+        # Item_unit_number, file_size, Creation_date, audio_class, file_path:
+        #   found in portal_Portal_DM_Items; see PORTAL_FIELD_VALIDATORS below
+    },
+    # NDM Digital Storage Format layout
+    "NEW DIGITAL STORAGE_API": {
+        # file_path and file_size are in portal_pDMUnit; see PORTAL_FIELD_VALIDATORS.
+        "Barcode": [_check_null],
+        "Location": [_check_null],
+        "storage_format": [_check_null],
+    },
 }
 
 
 # ---------------------------------------------------------------------------
-# Cross-field / conditional rules
+# Portal field -> validators mapping
 # ---------------------------------------------------------------------------
+# Fields that live inside FileMaker portals.
 
-
-def _check_cross_field_rules(record: Record) -> list[dict]:
-    """Check rules that depend on the value of more than one field.
-
-    Implements the following rules from the spec:
-
-    1. Where production_type = "TELEVISION SERIES", flag if episode_no or
-       episode_title are null.
-    2. Where release_broadcast_year = "N/A" or "Unknown", flag if record_date
-       is null.
-    3. (TODO - DC layout) Where retention_status = "Temporary", flag if
-       retention_start_date or retention_end_date are null.
-    4. (TODO - DC layout) Where object_purpose = "Preservation (Full)" or
-       "Access (Core)", flag if sound_format is null.
-
-    :param record: A fmrest Record object.
-    :return: List of violation dicts.
-    """
-    violations = []
-
-    # Rule 1: TELEVISION SERIES requires episode fields
-    production_type = _field(record, "production_type")
-    if production_type.upper() == "TELEVISION SERIES":
-        if _is_null(_field(record, "episode no.")):
-            violations.append(
-                _make_violation(
-                    record,
-                    "episode no.",
-                    "episode no. is null but production_type is 'TELEVISION SERIES'.",
-                )
-            )
-        if _is_null(_field(record, "episode_title")):
-            violations.append(
-                _make_violation(
-                    record,
-                    "episode_title",
-                    "episode_title is null but production_type is 'TELEVISION SERIES'.",
-                )
-            )
-
-    # Rule 2: N/A or Unknown release_broadcast_year requires record_date
-    release_year = _field(record, "release_broadcast_year")
-    if release_year.upper() in ("N/A", "UNKNOWN"):
-        if _is_null(_field(record, "record_date")):
-            violations.append(
-                _make_violation(
-                    record,
-                    "record_date",
-                    f"record_date is null but release_broadcast_year is {release_year!r}.",
-                )
-            )
-
-    # Rule 3: (TODO - DC layout) Temporary retention requires date range
-    # retention_status = _field(record, "retention_status")
-    # if retention_status.upper() == "TEMPORARY":
-    #     if _is_null(_field(record, "retention_start_date")):
-    #         violations.append(_make_violation(
-    #             record, "retention_start_date",
-    #             "retention_start_date is null but retention_status is 'Temporary'."
-    #         ))
-    #     if _is_null(_field(record, "retention_end_date")):
-    #         violations.append(_make_violation(
-    #             record, "retention_end_date",
-    #             "retention_end_date is null but retention_status is 'Temporary'."
-    #         ))
-
-    # Rule 4: (TODO - DC layout) Preservation/access records require sound_format
-    # OBJECT_PURPOSES_REQUIRING_SOUND_FORMAT = {
-    #     "PRESERVATION (FULL)", "ACCESS (CORE)"
-    # }
-    # object_purpose = _field(record, "object_purpose")
-    # if object_purpose.upper() in OBJECT_PURPOSES_REQUIRING_SOUND_FORMAT:
-    #     if _is_null(_field(record, "sound_format(1)")):
-    #         violations.append(_make_violation(
-    #             record, "sound_format(1)",
-    #             f"sound_format is null but object_purpose is {object_purpose!r}."
-    #         ))
-
-    return violations
-
-
-# ---------------------------------------------------------------------------
-# Notes field check (stretch goal per spec)
-# ---------------------------------------------------------------------------
-
-# Valid section headers as defined in the spec.
-_NOTES_HEADERS = {
-    "General Notes",
-    "Language Notes",
-    "Credits",
-    "Credits Notes",
-    "Dates Notes",
-    "Titles Notes",
+PORTAL_FIELD_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
+    PORTAL_DM_ITEMS: {
+        "Item_unit_number": [_check_null],
+        "file_size_display": [_check_null],
+        "Creation_date": [_check_null],
+        "audio_class": [_check_null],
+        "file_path": [_check_null],
+    },
+    PORTAL_DM_UNIT: {
+        "file_path": [_check_null],
+        "file_size": [_check_null],
+    },
 }
 
-# Pattern for a correctly formatted notes section:
-# "Header: <non-empty text><carriage return>"
-# We check each header found in the field value.
-_NOTES_HEADER_PATTERN = re.compile(
-    r"^(?P<header>.+?):\s+(?P<body>.+?)(?:\r|$)",
-    re.MULTILINE,
-)
+# Which layouts have which portals, and the prefix for each portal's fields.
+# Used by _check_portal_fields() to iterate and access portal rows.
+LAYOUT_PORTALS: dict[str, list[tuple[str, str]]] = {
+    "NEW DIGITAL_API": [(PORTAL_DM_ITEMS, DM_PREFIX)],
+    "NEW DIGITAL STORAGE_API": [(PORTAL_DM_UNIT, DM_CARRIER_PREFIX)],
+}
 
 
-def _check_notes_field(record: Record) -> list[dict]:
-    """Check the notes field for correct section header formatting.
+# ---------------------------------------------------------------------------
+# Portal field validation
+# ---------------------------------------------------------------------------
 
-    The spec requires that any of the recognised headers (e.g. "Language
-    Notes", "Credits Notes") must be followed by a colon, a space, body text,
-    and a carriage return.  Violations are reported if:
-      - A recognised header is present but not followed by ": <text><CR>".
-      - A header-like token (word(s) followed by colon) is present that is
-        not in the recognised header list, which may indicate a typo.
 
-    This check is marked as a stretch goal in the spec; disable it by removing
-    "notes" from FIELD_VALIDATORS if the false-positive rate is too high.
-
-    :param record: A fmrest Record object.
-    :return: List of violation dicts (may be empty).
-    """
-    value = _field(record, "notes")
-    if _is_null(value):
-        return []
-
+def _check_portal_fields(layout: str, record: Record) -> list[dict]:
+    """Validate fields inside portal rows for the given layout and record."""
     violations = []
+    portals = LAYOUT_PORTALS.get(layout, [])
 
-    for header in _NOTES_HEADERS:
-        # Check if this header appears in the field at all
-        if header not in value:
+    for portal_name, prefix in portals:
+        field_validators = PORTAL_FIELD_VALIDATORS.get(portal_name, {})
+        if not field_validators:
             continue
 
-        # It's present: verify it's formatted as "Header: <text><CR>"
-        pattern = re.compile(
-            rf"^{re.escape(header)}:\s+\S.*?(?:\r|$)",
-            re.MULTILINE,
-        )
-        if not pattern.search(value):
-            violations.append(
-                _make_violation(
-                    record,
-                    "notes",
-                    f"Header {header!r} is present but not correctly formatted. "
-                    f"Expected: '{header}: <text><CR>'.",
-                )
+        portal_foundset = record[portal_name]
+        rows = list(portal_foundset)
+
+        if not rows:
+            logger.debug(
+                f"[{layout}] Portal {portal_name!r} is empty on "
+                f"record_id={record.record_id}; skipping portal checks."
             )
+            continue
+
+        for portal_row in rows:
+            portal_record_id = str(_get_field(portal_row, "recordId"))
+            for bare_name, validators in field_validators.items():
+                value = _get_portal_field(portal_row, bare_name, prefix)
+                for validator in validators:
+                    for message in validator(value):
+                        # Use the bare field name in the field column and include
+                        # the portal row id in the violation dict for logging only.
+                        field_label = bare_name
+                        v = _make_violation(
+                            layout, record, field_label, message, portal_record_id
+                        )
+                        violations.append(v)
 
     return violations
 
 
 # ---------------------------------------------------------------------------
-# Per-record validation entry point
+# Cross-field conditional rules
 # ---------------------------------------------------------------------------
 
 
-def validate_record(record: Record) -> list[dict]:
-    """Run all validation checks against *record* and return violations.
+def _check_cross_field_rules(layout: str, record: Record) -> list[dict]:
+    """Check rules that depend on the value of more than one field.
 
-    Runs:
-      1. Single-field null checks from FIELD_VALIDATORS.
-      2. Cross-field conditional rules from _check_cross_field_rules().
-      3. Notes field formatting check from _check_notes_field().
+    Rules by layout:
 
-    :param record: A fmrest Record object.
-    :return: List of violation dicts with keys matching REPORT_FIELDNAMES.
+    GE and DC layouts:
+      1. Where production_type = "TELEVISION SERIES", flag if episode no. or
+         episode_title are null.
+      2. Where release_broadcast_year = "N/A" or "Unknown", flag if record_date
+         is null.
+
+    DC layout only:
+      3. Where retention_status = "Temporary", flag if retention_start_date or
+         retention_end_date are null.
+      4. Where object_purpose = "Preservation (Full)" or "Access (Core)", flag
+         if sound_format(1) is null.
+
+    DS layout: no cross-field rules currently defined.
     """
-    record_dict = record.to_dict()
     violations = []
 
-    # 1. Single-field checks
-    for field_name, validators in FIELD_VALIDATORS.items():
+    # Rules 1 and 2 apply to both GE and DC layouts.
+    if layout in ("InventoryForLabeling_API", "NEW DIGITAL_API"):
+
+        # Rule 1: TELEVISION SERIES requires episode fields.
+        production_type = _get_field(record, "production_type")
+        if production_type.upper() == "TELEVISION SERIES":
+            for ep_field in ("episode no.", "episode_title"):
+                if _is_null(_get_field(record, ep_field)):
+                    violations.append(
+                        _make_violation(
+                            layout,
+                            record,
+                            ep_field,
+                            f"{ep_field} is null but production_type is "
+                            f"'TELEVISION SERIES'.",
+                        )
+                    )
+
+        # Rule 2: N/A or Unknown release_broadcast_year requires record_date.
+        release_year = _get_field(record, "release_broadcast_year")
+        if release_year.upper() in ("N/A", "UNKNOWN"):
+            if _is_null(_get_field(record, "record_date")):
+                violations.append(
+                    _make_violation(
+                        layout,
+                        record,
+                        "record_date",
+                        f"record_date is null but release_broadcast_year is "
+                        f"{release_year!r}.",
+                    )
+                )
+
+    # Rules 3 and 4 apply to DC layout only.
+    if layout == "NEW DIGITAL_API":
+
+        # Rule 3: Temporary retention requires start and end dates.
+        retention_status = _get_field(record, "retention_status")
+        if retention_status.upper() == "TEMPORARY":
+            for date_field in ("retention_start_date", "retention_end_date"):
+                if _is_null(_get_field(record, date_field)):
+                    violations.append(
+                        _make_violation(
+                            layout,
+                            record,
+                            date_field,
+                            f"{date_field} is null but retention_status is "
+                            f"'Temporary'.",
+                        )
+                    )
+
+        # Rule 4: Preservation/access records require sound_format.
+        OBJECT_PURPOSES_REQUIRING_SOUND = {"PRESERVATION (FULL)", "ACCESS (CORE)"}
+        object_purpose = _get_field(record, "object_purpose")
+        if object_purpose.upper() in OBJECT_PURPOSES_REQUIRING_SOUND:
+            if _is_null(_get_field(record, "sound_format(1)")):
+                violations.append(
+                    _make_violation(
+                        layout,
+                        record,
+                        "sound_format(1)",
+                        f"sound_format(1) is null but object_purpose is "
+                        f"{object_purpose!r}.",
+                    )
+                )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Per-record validation logic
+# ---------------------------------------------------------------------------
+
+
+def validate_record(layout: str, record: Record) -> list[dict]:
+    """Run all validation checks against the given record for the specified layout.
+
+    Runs:
+      1. Single-field null checks from LAYOUT_VALIDATORS[layout].
+      2. Portal field null checks from _check_portal_fields().
+      3. Cross-field conditional rules from _check_cross_field_rules().
+    Returns a list of violation dicts suitable for output to the report CSV.
+    """
+    violations = []
+    record_dict = record.to_dict()
+
+    # 1. Single-field (flat) checks
+    for field_name, validators in LAYOUT_VALIDATORS.get(layout, {}).items():
         if field_name not in record_dict:
             logger.debug(
-                f"Field {field_name!r} not on record {record.record_id}; skipping."
+                f"[{layout}] Field {field_name!r} not on record "
+                f"{record.record_id}; skipping."
             )
             continue
         value = str(record[field_name] or "")
         for validator in validators:
             for message in validator(value):
-                v = _make_violation(record, field_name, message)
+                v = _make_violation(layout, record, field_name, message)
                 violations.append(v)
                 logger.debug(
-                    f"VIOLATION record_id={record.record_id} "
+                    f"VIOLATION [{layout}] record_id={record.record_id} "
                     f"inventory_id={v['inventory_id']!r} "
                     f"field={field_name!r}: {message}"
                 )
 
-    # 2. Cross-field rules
-    for v in _check_cross_field_rules(record):
+    # 2. Portal field checks
+    for v in _check_portal_fields(layout, record):
         violations.append(v)
         logger.debug(
-            f"VIOLATION (cross-field) record_id={record.record_id} "
-            f"inventory_id={v['inventory_id']!r} "
+            f"VIOLATION (portal) [{layout}] record_id={record.record_id} "
+            f"portal_record_id={v.get('portal_record_id', '')!r} "
             f"field={v['field']!r}: {v['violation']}"
         )
 
-    # 3. Notes field
-    for v in _check_notes_field(record):
+    # 3. Cross-field rules
+    for v in _check_cross_field_rules(layout, record):
         violations.append(v)
         logger.debug(
-            f"VIOLATION (notes) record_id={record.record_id} "
-            f"inventory_id={v['inventory_id']!r}: {v['violation']}"
+            f"VIOLATION (cross-field) [{layout}] record_id={record.record_id} "
+            f"inventory_id={v['inventory_id']!r} "
+            f"field={v['field']!r}: {v['violation']}"
         )
 
     return violations
@@ -338,21 +408,57 @@ def validate_record(record: Record) -> list[dict]:
 
 
 def _write_csv_report(violations: list[dict], output_path: Path) -> None:
-    """Write *violations* to a CSV file at *output_path*.
-
-    :param violations: List of violation dicts from validate_record().
-    :param output_path: Destination path; parent directories are created if needed.
-    """
+    """Write violations dicts to a CSV file at the given path."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=REPORT_FIELDNAMES)
+        # Ignore extra dict keys (like 'portal_record_id') so we can keep
+        # that value for logging without forcing it into the CSV.
+        writer = csv.DictWriter(f, fieldnames=REPORT_FIELDNAMES, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(violations)
     logger.info(f"Report written to {output_path} ({len(violations)} violation(s)).")
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Record retrieval
+# ---------------------------------------------------------------------------
+
+
+def _get_records_for_layout(
+    config: dict,
+    layout: str,
+    args: argparse.Namespace,
+) -> list[Record]:
+    """Initialize a client for the given layout and fetch records."""
+    logger.info(f"Connecting to layout: {layout!r}.")
+    fm_client = fm_utils.initialize_client(config, logger, layout=layout)
+    meta = LAYOUT_METADATA[layout]
+    date_field = meta["date_modified_field"]
+
+    if args.start_date and args.end_date:
+        logger.info(
+            f"[{layout}] Fetching records where {date_field} is between "
+            f"{args.start_date} and {args.end_date}."
+        )
+        records = fm_client.find_all_records(
+            query=[{date_field: f"{args.start_date}...{args.end_date}"}],
+            page_size=args.page_size,
+        )
+        logger.info(f"[{layout}] Found {len(records)} record(s) in date range.")
+    else:
+        logger.info(f"[{layout}] No date range supplied; retrieving all records.")
+        records = fm_utils.get_all_records(
+            fm_client=fm_client,
+            page_size=args.page_size,
+            offset=args.offset,
+            logger=logger,
+        )
+
+    return records
+
+
+# ---------------------------------------------------------------------------
+# CLI arguments
 # ---------------------------------------------------------------------------
 
 
@@ -396,8 +502,9 @@ def _get_arguments() -> argparse.Namespace:
         default=None,
         metavar="MM/DD/YYYY",
         help=(
-            "If provided, only validate records whose `date_modified` field is "
-            "on or after this date. Requires --end_date."
+            "If provided, only validate records modified on or after this date. "
+            "The field used for filtering varies by layout (see LAYOUT_METADATA). "
+            "Requires --end_date."
         ),
     )
     parser.add_argument(
@@ -406,8 +513,19 @@ def _get_arguments() -> argparse.Namespace:
         default=None,
         metavar="MM/DD/YYYY",
         help=(
-            "If provided, only validate records whose `date_modified` field is "
-            "on or before this date. Requires --start_date."
+            "If provided, only validate records modified on or before this date. "
+            "Requires --start_date."
+        ),
+    )
+    parser.add_argument(
+        "--layout",
+        type=str,
+        required=True,
+        choices=list(LAYOUT_VALIDATORS.keys()),
+        help=(
+            "FileMaker layout to validate. Must be one of: "
+            + ", ".join(LAYOUT_VALIDATORS.keys())
+            + "."
         ),
     )
     parser.add_argument(
@@ -416,7 +534,7 @@ def _get_arguments() -> argparse.Namespace:
         default=None,
         help=(
             "Path to write the CSV violation report. "
-            "Defaults to reports/validation_report_YYYYMMDD_HHMMSS.csv."
+            "Defaults to reports/validation_report_{LAYOUT}_{YYYYMMDD_HHMMSS}.csv."
         ),
     )
     return parser.parse_args()
@@ -437,41 +555,30 @@ def main() -> None:
         sys.exit(1)
 
     config = fm_utils.get_config(args.config_file)
-    fm_client = fm_utils.initialize_client(config, logger)
+
+    layout = args.layout
+    logger.info(f"Validating layout: {layout!r}.")
 
     if args.output_csv:
         output_path = Path(args.output_csv)
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = Path("reports") / f"validation_report_{timestamp}.csv"
+        # Sanitize layout name for use in a filename (replace spaces with underscores).
+        layout_slug = layout.replace(" ", "_")
+        output_path = (
+            Path("reports") / f"validation_report_{layout_slug}_{timestamp}.csv"
+        )
 
     # ---- Fetch records ----
-    if args.start_date and args.end_date:
-        logger.info(
-            f"Fetching records modified between {args.start_date} and {args.end_date}."
-        )
-        records = fm_client.find_all_records(
-            query=[{"date_modified": f"{args.start_date}...{args.end_date}"}],
-            page_size=args.page_size,
-        )
-        logger.info(f"Found {len(records)} record(s) in date range.")
-    else:
-        logger.info("No date range supplied; retrieving all records.")
-        records = fm_utils.get_all_records(
-            fm_client=fm_client,
-            page_size=args.page_size,
-            offset=args.offset,
-            logger=logger,
-        )
+    records = _get_records_for_layout(config, layout, args)
 
     # ---- Validate ----
     all_violations: list[dict] = []
     for record in records:
-        all_violations.extend(validate_record(record))
+        all_violations.extend(validate_record(layout, record))
 
     logger.info(
-        f"Processed {len(records)} record(s); "
-        f"found {len(all_violations)} violation(s)."
+        f"Processed {len(records)} record(s); " f"{len(all_violations)} violation(s)."
     )
 
     # ---- Report ----

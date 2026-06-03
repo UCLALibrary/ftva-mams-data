@@ -7,10 +7,6 @@ from ftva_etl import FilemakerClient
 from fmrest.exceptions import FileMakerError
 from fmrest.record import Record
 
-# --------------------
-# Logging
-# --------------------
-
 
 def configure_logging(logger: logging.Logger, suffix: str = "") -> None:
     """Configure file + console handlers on *logger*.
@@ -43,11 +39,6 @@ def configure_logging(logger: logging.Logger, suffix: str = "") -> None:
     logger.addHandler(console_handler)
 
 
-# --------------------
-# Configuration
-# --------------------
-
-
 def get_config(config_file_name: str) -> dict:
     """Load and return configuration from a TOML file.
 
@@ -58,16 +49,18 @@ def get_config(config_file_name: str) -> dict:
         return tomllib.load(f)
 
 
-# --------------------
-# Filemaker client
-# --------------------
-
-
-def initialize_client(config: dict, logger: logging.Logger) -> FilemakerClient:
+def initialize_client(
+    config: dict,
+    logger: logging.Logger,
+    layout: str | None = None,
+) -> FilemakerClient:
     """Initialize and return a configured Filemaker client.
 
     :param config: Program configuration dict loaded from TOML.
     :param logger: Logger for status/error messages.
+    :param layout: FM layout name to connect to.  If provided, overrides the
+        ``layout`` key in the config file.  Use this when a script needs to
+        connect to multiple layouts in one run.
     :return: An initialized ``FilemakerClient`` instance.
     :raises FileMakerError: If the connection to Filemaker fails.
     """
@@ -81,9 +74,12 @@ def initialize_client(config: dict, logger: logging.Logger) -> FilemakerClient:
     for key in ("url", "database", "layout", "api_version", "timeout"):
         if key in fm_config:
             kwargs[key] = fm_config[key]
+    # Explicit layout argument takes precedence over config file.
+    if layout is not None:
+        kwargs["layout"] = layout
     try:
         client = FilemakerClient(**kwargs)
-        logger.info("Connected to Filemaker.")
+        logger.info(f"Connected to Filemaker layout {kwargs.get('layout')!r}.")
         return client
     except FileMakerError as e:
         logger.error(f"Failed to connect to Filemaker: {e}")
@@ -109,8 +105,6 @@ def get_all_records(
     :param logger: Optional logger for progress messages.
     :return: List of all fmrest ``Record`` objects.
     """
-
-    # Use the provided logger or create a default one for this module
     _log = logger or logging.getLogger(__name__)
     _log.info(f"Retrieving all records in pages of {page_size}...")
 
@@ -133,23 +127,3 @@ def get_all_records(
         current_offset += page_size
 
     return all_records
-
-
-def validate_fields(
-    field_names: list[str],
-    fm_record: Record,
-) -> None:
-    """Verify that every requested field name exists on the given Filemaker record.
-
-    :param field_names: Target field names to validate.
-    :param fm_record: A representative Filemaker record to check field names against.
-    :raises ValueError: If one or more field names are not present on the record.
-    """
-    fm_fields = fm_record.keys()
-    bad_fields = [name for name in field_names if name not in fm_fields]
-    if bad_fields:
-        raise ValueError(
-            f"The following field(s) were not found in Filemaker: "
-            f"{bad_fields}. "
-            f"Available fields are: {sorted(fm_fields)}"
-        )

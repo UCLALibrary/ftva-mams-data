@@ -68,7 +68,7 @@ ftva_holdings_report =  "/shared/University of California Los Angeles (UCLA) 01U
 [filemaker]
 api_version="vLatest"
 database="Inventory for Labeling"
-layout="InventoryForLabeling_ReadOnly_API"
+layout="InventoryForLabeling_API"
 password="YOUR_PASSWORD"
 url = "https://adam.cinema.ucla.edu"
 user="YOUR_NAME"
@@ -85,19 +85,38 @@ a container, add `docker compose exec ftva_data ` to the beginning of the comman
 ```
 python filemaker_validation_report.py \
     --config_file CONFIG_FILE \
+    --layout LAYOUT \
     [--start_date MM/DD/YYYY --end_date MM/DD/YYYY] \
+    [--page_size PAGE_SIZE] \
+    [--offset OFFSET] \
     [--output_csv OUTPUT_FILE]
 ```
 
-This script checks records in the FTVA processing database against the "Validation Rules (Analog and Digital)" and reports any violations to a CSV file. Each row in the output represents one violation, identified by FileMaker record ID and inventory ID, with the field name, raw value, and a description of the rule that was broken.
-By default the script iterates all records in the database (slow; expect 20-30 minutes for ~607,000 records). To target only recently added or edited records, pass --start_date and --end_date together; the script will use FileMaker's find API to query only records whose date_modified field falls within that range, which is much faster. Note that very wide date windows (e.g., a full year) may time out.
-Output is written to reports/validation_report_{DATE}_{TIME}.csv by default, or to the path provided via --output_csv. The reports/ directory is created automatically if it does not exist. The script also writes a log file to logs/.
+where `LAYOUT` is one of:
 
-Arguments:
+| Value | FileMaker layout |
+|---|---|
+| `InventoryForLabeling_API` | Analog GE Form |
+| `NEW DIGITAL_API` | NDM Digital Carrier |
+| `NEW DIGITAL STORAGE_API` | NDM Digital Storage Format |
 
-- --config_file (required): path to the TOML config file (see Secrets above).
-- --start_date / --end_date: date range filter on date_modified, in MM/DD/YYYY format. Both must be provided together, or neither.
-- --output_csv: path for the CSV output file.
+This script checks records in the specified FileMaker layout against the validation rules defined by FTVA staff and writes any violations to a CSV file. Each row in the output represents one violation, identified by FileMaker record ID, inventory ID, and inventory number, along with the field name, a description of the rule that was broken, and the modification user and timestamp so violations can be traced to recent edits. For violations found inside a FileMaker portal (currently `portal_Portal_DM_Items` on the NDM Digital Carrier layout), a `portal_record_id` column identifies the specific portal row.
+
+By default the script iterates all records in the layout. To target only recently added or edited records, pass `--start_date` and `--end_date` together; the script will use FileMaker's find API to query only records modified within that date range, which is much faster. 
+
+Output is written to `reports/validation_report_{LAYOUT}_{DATE}_{TIME}.csv` by default, or to the path provided via `--output_csv`. The `reports/` directory is created automatically if it does not exist. A log file is also written to `logs/`.
+
+**Arguments:**
+- `--config_file` (required): path to the TOML config file (see *Secrets* above).
+- `--layout` (required): the FileMaker layout to validate; see table above.
+- `--start_date` / `--end_date`: date range filter, in `MM/DD/YYYY` format. Both must be provided together, or neither.
+- `--page_size`: number of records to fetch per API request (default: 5000).
+- `--offset`: starting record position for a full scan; ignored when a date range is given (default: 1).
+- `--output_csv`: path for the CSV output file.
+
+**Notes on specific layouts:**
+- The NDM Digital Carrier layout (`NEW DIGITAL_API`) validates both flat record fields and fields inside the `portal_Portal_DM_Items` portal (`Item_unit_number`, `file_size_display`, `Creation_date`, `audio_class`, `file_path`). 
+- The NDM Digital Storage Format layout (`NEW DIGITAL STORAGE_API`) validates `file_path` and `file_size` from the `portal_pDMUnit` portal, in addition to its flat fields.
 
 ### Retrieve all Filemaker records
 
