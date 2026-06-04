@@ -52,17 +52,17 @@ LAYOUT_METADATA: dict[str, dict[str, str]] = {
     },
 }
 
-# Portal name on the NEW DIGITAL_API layout that contains the DC-only fields.
-PORTAL_DM_ITEMS = "portal_Portal_DM_Items"
+# Portal name on NEW DIGITAL_API (DC layout) that contains Digital Media fields (item-level data).
+DC_PORTAL = "portal_Portal_DM_Items"
 
-# Table occurrence prefix used by FM for fields in the DM Items portal.
-DM_PREFIX = "Digital Media_Item Unit::"
+# For NEW DIGITAL_API (DC layout), fields in the portal are accessed using this prefix.
+DC_PORTAL_PREFIX = "Digital Media_Item Unit::"
 
-# Portal name on the NEW DIGITAL STORAGE_API layout containing file path/size.
-PORTAL_DM_UNIT = "portal_pDMUnit"
+# Portal name on NEW DIGITAL STORAGE_API (DS layout) that contains carrier fields (file path/size).
+DS_PORTAL = "portal_pDMUnit"
 
-# Table occurrence prefix used by FM for fields in the DS portal.
-DM_CARRIER_PREFIX = "Digital Media_carrier::"
+# For NEW DIGITAL STORAGE_API (DS layout), fields in the portal are accessed using this prefix.
+DS_PORTAL_PREFIX = "Digital Media_carrier::"
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +135,8 @@ def _check_null(value: str) -> list[str]:
 # Layout -> flat field -> validators mapping
 # ---------------------------------------------------------------------------
 # Fields that live directly on the record (not in portals).
+# For now, each field has only a single validator (_check_null),
+# but using a list for each field allows us to add more if needed.
 
 LAYOUT_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
     # Analog GE Form layout
@@ -187,14 +189,14 @@ LAYOUT_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
 # Fields that live inside FileMaker portals.
 
 PORTAL_FIELD_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
-    PORTAL_DM_ITEMS: {
+    DC_PORTAL: {
         "Item_unit_number": [_check_null],
         "file_size_display": [_check_null],
         "Creation_date": [_check_null],
         "audio_class": [_check_null],
         "file_path": [_check_null],
     },
-    PORTAL_DM_UNIT: {
+    DS_PORTAL: {
         "file_path": [_check_null],
         "file_size": [_check_null],
     },
@@ -203,8 +205,8 @@ PORTAL_FIELD_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
 # Which layouts have which portals, and the prefix for each portal's fields.
 # Used by _check_portal_fields() to iterate and access portal rows.
 LAYOUT_PORTALS: dict[str, list[tuple[str, str]]] = {
-    "NEW DIGITAL_API": [(PORTAL_DM_ITEMS, DM_PREFIX)],
-    "NEW DIGITAL STORAGE_API": [(PORTAL_DM_UNIT, DM_CARRIER_PREFIX)],
+    "NEW DIGITAL_API": [(DC_PORTAL, DC_PORTAL_PREFIX)],
+    "NEW DIGITAL STORAGE_API": [(DS_PORTAL, DS_PORTAL_PREFIX)],
 }
 
 
@@ -327,7 +329,7 @@ def _check_cross_field_rules(layout: str, record: Record) -> list[dict]:
                     )
 
         # Rule 4: Preservation/access records require sound_format.
-        OBJECT_PURPOSES_REQUIRING_SOUND = {"PRESERVATION (FULL)", "ACCESS (CORE)"}
+        OBJECT_PURPOSES_REQUIRING_SOUND = ["PRESERVATION (FULL)", "ACCESS (CORE)"]
         object_purpose = _get_field(record, "object_purpose")
         if object_purpose.upper() in OBJECT_PURPOSES_REQUIRING_SOUND:
             if _is_null(_get_field(record, "sound_format(1)")):
