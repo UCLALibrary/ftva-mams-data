@@ -1,5 +1,5 @@
 # Install `ftva-etl` package
-git+https://github.com/UCLALibrary/ftva-etl.git@v0.3.1
+git+https://github.com/UCLALibrary/ftva-etl.git@v0.3.3
 xmltodict==0.14.2
 # For Excel conversion
 pandas==2.2.3

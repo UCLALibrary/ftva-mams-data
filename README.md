@@ -68,7 +68,7 @@ ftva_holdings_report =  "/shared/University of California Los Angeles (UCLA) 01U
 [filemaker]
 api_version="vLatest"
 database="Inventory for Labeling"
-layout="InventoryForLabeling_ReadOnly_API"
+layout="InventoryForLabeling_API"
 password="YOUR_PASSWORD"
 url = "https://adam.cinema.ucla.edu"
 user="YOUR_NAME"
@@ -79,6 +79,40 @@ user="YOUR_NAME"
 Examples below assume you're running them in an existing `bash` shell within the container.  To run from outside, launching
 a container, add `docker compose exec ftva_data ` to the beginning of the command (e.g., 
 `docker compose exec ftva_data python filemaker_get_all_records.py --config_file CONFIG_FILE` ).
+
+### Report Filemaker validation rule violations
+
+```
+python filemaker_validation_report.py \
+    --config_file CONFIG_FILE \
+    --layout LAYOUT \
+    [--start_date MM/DD/YYYY --end_date MM/DD/YYYY] \
+    [--page_size PAGE_SIZE] \
+    [--offset OFFSET] \
+    [--output_csv OUTPUT_FILE]
+```
+
+where `LAYOUT` is one of:
+
+| Value | FileMaker layout |
+|---|---|
+| `InventoryForLabeling_API` | Analog GE Form |
+| `NEW DIGITAL_API` | NDM Digital Carrier |
+| `NEW DIGITAL STORAGE_API` | NDM Digital Storage Format |
+
+This script checks records in the specified FileMaker layout against the validation rules defined by FTVA staff and writes any violations to a CSV file. Each row in the output represents one violation, identified by FileMaker inventory ID and inventory number, along with the field name, a description of the rule that was broken, and the modification user and timestamp so violations can be traced to recent edits.
+
+By default the script iterates all records in the layout. To target only recently added or edited records, pass `--start_date` and `--end_date` together; the script will use FileMaker's find API to query only records modified within that date range, which is much faster. 
+
+Output is written to `reports/validation_report_{LAYOUT}_{DATE}_{TIME}.csv` by default, or to the path provided via `--output_csv`. The `reports/` directory is created automatically if it does not exist. A log file is also written to `logs/`.
+
+**Arguments:**
+- `--config_file` (required): path to the TOML config file (see *Secrets* above).
+- `--layout` (required): the FileMaker layout to validate; see table above.
+- `--start_date` / `--end_date`: date range filter, in `MM/DD/YYYY` format. Both must be provided together, or neither.
+- `--page_size`: number of records to fetch per API request (default: 5000).
+- `--offset`: starting record position for a full scan; ignored when a date range is given (default: 1).
+- `--output_csv`: path for the CSV output file.
 
 ### Retrieve all Filemaker records
 
