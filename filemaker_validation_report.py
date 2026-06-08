@@ -209,6 +209,17 @@ LAYOUT_PORTALS: dict[str, list[tuple[str, str]]] = {
     "NEW DIGITAL STORAGE_API": [(DS_PORTAL, DS_PORTAL_PREFIX)],
 }
 
+# The FM layout parameter alone cannot be trusted to return only the expected
+# record type -- both GE and DC layouts return a mix of analog and digital
+# records from the same underlying table. The digital_record field distinguishes
+# them: "0" = legacy/analog (GE), "1" = NDM digital (DC).
+# The DS layout is a separate table so no filter is needed.
+LAYOUT_DIGITAL_RECORD_FILTER: dict[str, str | None] = {
+    "InventoryForLabeling_API": "0",
+    "NEW DIGITAL_API": "1",
+    "NEW DIGITAL STORAGE_API": None,
+}
+
 
 # ---------------------------------------------------------------------------
 # Portal field validation
@@ -435,18 +446,34 @@ def _get_records_for_layout(
     fm_client = fm_utils.initialize_client(config, logger, layout=layout)
     meta = LAYOUT_METADATA[layout]
     date_field = meta["date_modified_field"]
+    digital_record_filter = LAYOUT_DIGITAL_RECORD_FILTER[layout]
 
     if args.start_date and args.end_date:
         logger.info(
             f"[{layout}] Fetching records where {date_field} is between "
             f"{args.start_date} and {args.end_date}."
         )
+        # AND condition: both criteria in the same dict.
+        query_criterion: dict = {date_field: f"{args.start_date}...{args.end_date}"}
+        if digital_record_filter is not None:
+            query_criterion["digital_record"] = digital_record_filter
         records = fm_client.find_all_records(
-            query=[{date_field: f"{args.start_date}...{args.end_date}"}],
+            query=[query_criterion],
             page_size=args.page_size,
         )
         logger.info(f"[{layout}] Found {len(records)} record(s) in date range.")
+    elif digital_record_filter is not None:
+        # No date range, but still need to filter by digital_record.
+        logger.info(
+            f"[{layout}] No date range supplied; retrieving all records "
+            f"with digital_record={digital_record_filter!r}."
+        )
+        records = fm_client.find_all_records(
+            query=[{"digital_record": digital_record_filter}],
+            page_size=args.page_size,
+        )
     else:
+        # DS layout: no filter needed, iterate all records.
         logger.info(f"[{layout}] No date range supplied; retrieving all records.")
         records = fm_utils.get_all_records(
             fm_client=fm_client,
