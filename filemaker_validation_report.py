@@ -436,6 +436,33 @@ def _write_csv_report(violations: list[dict], output_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _build_query_criterion(
+    layout: str,
+    date_field: str,
+    start_date: str | None,
+    end_date: str | None,
+) -> dict | None:
+    """Build the FileMaker find query criterion dict for the given layout and args.
+
+    Returns a dict suitable for use as a single find criterion, or None if no
+    find query is needed.
+
+    AND conditions within a find request are expressed by putting multiple
+    field-value pairs in the same dict. The digital_record filter is always
+    included for GE and DC layouts, combined with the date range if provided.
+    """
+    digital_record_filter = LAYOUT_DIGITAL_RECORD_FILTER[layout]
+    criterion: dict = {}
+
+    if start_date and end_date:
+        criterion[date_field] = f"{start_date}...{end_date}"
+
+    if digital_record_filter is not None:
+        criterion["digital_record"] = digital_record_filter
+
+    return criterion if criterion else None
+
+
 def _get_records_for_layout(
     config: dict,
     layout: str,
@@ -446,35 +473,22 @@ def _get_records_for_layout(
     fm_client = fm_utils.initialize_client(config, logger, layout=layout)
     meta = LAYOUT_METADATA[layout]
     date_field = meta["date_modified_field"]
-    digital_record_filter = LAYOUT_DIGITAL_RECORD_FILTER[layout]
 
-    if args.start_date and args.end_date:
+    query_criterion = _build_query_criterion(
+        layout, date_field, args.start_date, args.end_date
+    )
+
+    if query_criterion is not None:
         logger.info(
-            f"[{layout}] Fetching records where {date_field} is between "
-            f"{args.start_date} and {args.end_date}."
+            f"[{layout}] Fetching records with query filter criteria: {query_criterion}."
         )
-        # AND condition: both criteria in the same dict.
-        query_criterion: dict = {date_field: f"{args.start_date}...{args.end_date}"}
-        if digital_record_filter is not None:
-            query_criterion["digital_record"] = digital_record_filter
         records = fm_client.find_all_records(
             query=[query_criterion],
             page_size=args.page_size,
         )
-        logger.info(f"[{layout}] Found {len(records)} record(s) in date range.")
-    elif digital_record_filter is not None:
-        # No date range, but still need to filter by digital_record.
-        logger.info(
-            f"[{layout}] No date range supplied; retrieving all records "
-            f"with digital_record={digital_record_filter!r}."
-        )
-        records = fm_client.find_all_records(
-            query=[{"digital_record": digital_record_filter}],
-            page_size=args.page_size,
-        )
     else:
-        # DS layout: no filter needed, iterate all records.
-        logger.info(f"[{layout}] No date range supplied; retrieving all records.")
+        # DS layout with no date range: no find criteria, iterate all records.
+        logger.info(f"[{layout}] Fetching all records (no query filter criteria).")
         records = fm_utils.get_all_records(
             fm_client=fm_client,
             page_size=args.page_size,
@@ -482,6 +496,7 @@ def _get_records_for_layout(
             logger=logger,
         )
 
+    logger.info(f"[{layout}] {len(records)} record(s) retrieved.")
     return records
 
 
