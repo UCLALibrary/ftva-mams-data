@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fmrest.record import Record
 
-import filemaker_utils as fm_utils
+from utils import filemaker_utils as fm_utils
 
 # Use module-level logger.
 logger = logging.getLogger(Path(__file__).stem)
