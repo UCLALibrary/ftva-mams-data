@@ -1,4 +1,3 @@
-import tomllib
 import logging
 import argparse
 import re
@@ -7,13 +6,19 @@ from edtf import parse_edtf, EDTFParseException
 from enum import StrEnum
 from string import capwords
 from strsimpy.normalized_levenshtein import NormalizedLevenshtein
-from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from ftva_etl import FilemakerClient
+from ftva_etl import FilemakerClient  # for type hinting
 from fmrest.exceptions import FileMakerError, RequestException
 from fmrest.record import Record
 from retry.api import retry_call
+
+from utils.filemaker_utils import (
+    configure_logging,
+    get_config,
+    get_all_records,
+    initialize_client,
+)
 
 # Creating module-level logger here;
 # handlers are configured via `_configure_logging`.
@@ -26,41 +31,6 @@ FM_DELIMITER_PATTERN = r"\s*([,;/|]|\band\b|&|\r)\s*"
 # --------------------
 # Helper functions
 # --------------------
-def _configure_logging(dry_run: bool = False) -> None:
-    """Configure logging for this program.
-
-    Creates two handlers for the logger instantiated above,
-    one for the plain-text `.log` file and one for the console.
-
-    :param dry_run: Determines whether dry run suffix is added to log and CSV file names.
-    """
-    # Don't propagate to root logger, to avoid duplicate logs
-    logger.propagate = False
-    # Set level on logger to low value; handlers can set their own higher levels as needed
-    logger.setLevel(logging.DEBUG)
-
-    logs_dir = Path("logs")
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    suffix = "_DRY_RUN" if dry_run else ""
-
-    log_file = logs_dir / f"{logger.name}_{timestamp}{suffix}.log"
-
-    file_formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-    console_formatter = logging.Formatter("%(message)s")  # just messages for console
-
-    # Set up file handler
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(file_formatter)
-    file_handler.setLevel(logging.DEBUG)  # lower lvl so change logs written to file
-
-    # Set up console output handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(console_formatter)
-    console_handler.setLevel(logging.INFO)  # higher lvl so no change logs to console
-
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
 
 
 def _get_arguments() -> argparse.Namespace:
@@ -104,19 +74,10 @@ def _get_arguments() -> argparse.Namespace:
         type=int,
         default=1,
         required=False,
-        help="Offset (position in list of records, NOT `record_id`) to start fetching records from Filemaker. Default is 1.",
+        help="Offset (position in list of records, NOT `record_id`) to start fetching records from"
+        " Filemaker. Default is 1.",
     )
     return parser.parse_args()
-
-
-def _get_config(config_file_name: str) -> dict:
-    """Returns configuration for this program, loaded from TOML file.
-
-    :param config_file_name: Path to the TOML configuration file.
-    :return: Configuration dict.
-    """
-    with open(config_file_name, "rb") as f:
-        return tomllib.load(f)
 
 
 # --------------------
@@ -857,26 +818,6 @@ def _apply_transformers(field_name: str, raw_value: str) -> str:
 # --------------------
 # Batch processing functions
 # --------------------
-def _initialize_client(config: dict) -> FilemakerClient:
-    """Initialize and return a configured Filemaker client.
-
-    :param config: Program configuration dict loaded from TOML.
-    :return: An initialized `FilemakerClient` instance.
-    :raises FileMakerError: If the connection to Filemaker fails.
-    """
-    # Get the filemaker-specific configuration dictionary.
-    fm_config = config.get("filemaker", {})
-    try:
-        client = FilemakerClient(
-            user=fm_config.get("user", ""),
-            password=fm_config.get("password", ""),
-            timeout=fm_config.get("timeout", 120),  # default to 2 minute timeout
-        )
-        logger.info("Connected to Filemaker.")
-        return client
-    except FileMakerError as e:
-        logger.error(f"Failed to connect to Filemaker: {e}")
-        raise
 
 
 def _validate_fields(field_names: list[str], fm_record: Record) -> None:
@@ -894,33 +835,6 @@ def _validate_fields(field_names: list[str], fm_record: Record) -> None:
             f"{bad_fields}. "
             f"Available fields are: {sorted(fm_fields)}"
         )
-
-
-def _get_all_records(
-    fm_client: FilemakerClient, page_size: int, offset: int = 1
-) -> Iterator[Record]:
-    """Yield every record in the Filemaker database, paginating automatically.
-
-    :param fm_client: A configured FilemakerClient instance.
-    :param page_size: Number of records to retrieve at a time.
-    :param offset: Position (NOT record_id) to start at. Default: 1.
-    :yields: Individual fmrest `Record` objects.
-    """
-    logger.info(f"Retrieving records in pages of {page_size}...")
-    while True:
-        records = fm_client.get_records(
-            offset=offset,
-            limit=page_size,
-        )
-
-        # Empty records list indicates end of pagination.
-        if not records:
-            logger.info("Pagination complete. All records retrieved.")
-            return
-
-        logger.info(f"Retrieved records {offset} to {offset + len(records) - 1}...")
-        yield from records
-        offset += page_size
 
 
 def _process_record(
@@ -1036,7 +950,7 @@ def _process_batch(
     }
     fields_validated = False
 
-    for fm_record in _get_all_records(fm_client, page_size, offset):
+    for fm_record in get_all_records(fm_client, page_size, offset):
         # Validate fields against first record.
         # Invalid fields will raise an exception and cause the program to exit,
         # with a message explaining which fields are missing and which are available.
@@ -1057,8 +971,8 @@ def _process_batch(
 
 def main() -> None:
     args = _get_arguments()
-    _configure_logging(dry_run=args.dry_run)
-    config = _get_config(args.config_file)
+    configure_logging(logger, suffix="_DRY_RUN" if args.dry_run else "")
+    config = get_config(args.config_file)
 
     if args.dry_run:
         logger.info("DRY RUN: no changes will be written to Filemaker.")
@@ -1080,7 +994,7 @@ def main() -> None:
             "These fields will not be processed."
         )
 
-    fm_client = _initialize_client(config)
+    fm_client = initialize_client(config, logger)
 
     stats = _process_batch(
         fields_with_transformers, fm_client, args.dry_run, args.page_size, args.offset
