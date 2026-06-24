@@ -146,12 +146,12 @@ LAYOUT_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
         "donor_code": [_check_null],
         "Acquisition type": [_check_null],
         "type": [_check_null],
-        "item_unit_holdings": [_check_null],
+        "item holdings Count": [_check_null],
         "title": [_check_null],
         "date_received": [_check_null],
         "director": [_check_null],
         "release_broadcast_year": [_check_null],  # cross-field rule also applies
-        "format": [_check_null],
+        "format_type": [_check_null],
         "inventory_no": [_check_null],
     },
     # NDM Digital Carrier layout
