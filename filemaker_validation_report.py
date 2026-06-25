@@ -146,7 +146,7 @@ LAYOUT_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
         "donor_code": [_check_null],
         "Acquisition type": [_check_null],
         "type": [_check_null],
-        "item holdings Count": [_check_null],
+        "item holdings": [_check_null],
         "title": [_check_null],
         "date_received": [_check_null],
         "director": [_check_null],
