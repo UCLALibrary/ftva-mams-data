@@ -3,9 +3,7 @@ import io
 import logging
 
 from generate_metadata import (
-    _set_record_type_and_match_asset,
     _validate_match_asset_relationships,
-    _compare_inventory_numbers,
     logger,
 )
 
@@ -37,53 +35,9 @@ class TestGenerateMetadata(unittest.TestCase):
             handler.close()
             self.logger.removeHandler(handler)
 
-    def test_set_record_type_and_match_asset(self):
-        """Test that `_set_record_type_and_match_asset`
-        sets `record_type` and `match_asset` correctly."""
-        test_digital_data_records = [
-            {
-                "uuid": "12345",
-                "inventory_numbers": ["INV001"],
-            },
-            {
-                "uuid": "67890",
-                "inventory_numbers": ["INV002"],
-                "incoming_relationships": [
-                    {
-                        "relationship_type": "isTrackOf",
-                        "source_uuid": "12345",
-                    }
-                ],
-            },  # track relationship indicated in DD record targeting asset 12345
-        ]
-        expected_results = [
-            {
-                "uuid": "12345",
-                "inventory_numbers": ["INV001"],
-                "record_type": "asset",
-            },  # this output should be an asset
-            {
-                "uuid": "67890",
-                "inventory_numbers": ["INV002"],
-                "record_type": "track",
-                "match_asset": "12345",
-            },  # this output should be a track, with match_asset set to UUID of the asset
-        ]
-
-        # Zip together the two lists to get tuples of (dd_record, expected_result)
-        for dd_record, expected_result in zip(
-            test_digital_data_records, expected_results
-        ):
-            with self.subTest(dd_record=dd_record, expected_result=expected_result):
-                metadata_record = _set_record_type_and_match_asset(
-                    dd_record, expected_result
-                )
-                self.assertEqual(metadata_record, expected_result)
-
     def test_validate_match_asset_relationships_with_valid_match_asset(self):
         """Test that `_validate_match_asset_relationships`
-        leaves the `record_type` and `match_asset` values unchanged
-        when the `match_asset` relationship is valid.
+        returns True when all match_asset relationships are valid.
         """
         test_records = [
             {
@@ -101,15 +55,14 @@ class TestGenerateMetadata(unittest.TestCase):
                 "inventory_numbers": ["INV001"],
                 "match_asset": "12345",
                 "record_type": "track",
-            },  # valid match_asset relationship, so should be unchanged
+            },  # valid match_asset relationship: both match_asset and inv no match target
         ]
-
-        result_records = _validate_match_asset_relationships(test_records)
-        self.assertEqual(result_records, test_records)
+        result = _validate_match_asset_relationships(test_records)
+        self.assertTrue(result)
 
     def test_validate_match_asset_relationships_without_match_asset(self):
         """Test that `_validate_match_asset_relationships`
-        sets the `record_type` correctly when there is no `match_asset` relationship.
+        returns True when there are no `match_asset` relationships.
         """
         test_records = [
             {
@@ -129,13 +82,13 @@ class TestGenerateMetadata(unittest.TestCase):
             },
         ]
 
-        result_records = _validate_match_asset_relationships(test_records)
-        # All test records should remain `assets`, since there is no match_asset relationship.
-        self.assertEqual(result_records, test_records)
+        result = _validate_match_asset_relationships(test_records)
+        self.assertTrue(result)
 
     def test_validate_match_asset_relationships_when_match_asset_is_missing(self):
-        """Test that `_validate_match_asset_relationships` logs an error
-        when the targeted `match_asset` record is not in the batch.
+        """Test that `_validate_match_asset_relationships`
+        returns False and logs expected error
+        when the targeted `match_asset` record is missing.
         """
         test_records = [
             {"uuid": "12345", "inventory_numbers": ["INV001"], "record_type": "asset"},
@@ -143,84 +96,41 @@ class TestGenerateMetadata(unittest.TestCase):
             {
                 "uuid": "09876",
                 "inventory_numbers": ["INV001"],
-                "match_asset": "34567",  # missing from "batch", i.e. `test_records`
+                "match_asset": "34567",  # this value is missing
                 "record_type": "track",
-            },  # there should be an error in logs about the missing match_asset
+            },
         ]
 
-        result_records = _validate_match_asset_relationships(test_records)
-        # Test records should remain unchanged
-        self.assertEqual(result_records, test_records)
-        # `_validate_match_asset_relationships` should log an error about the missing match_asset.
-        # Check for it here in the test IO stream being used as the test log handler.
+        result = _validate_match_asset_relationships(test_records)
+        self.assertFalse(result)
+        # There should be an error in logs about the missing target
         self.assertIn(
             "ERROR: Match asset 34567 for record 09876 not found in batch.",
             self.stream.getvalue(),
         )
 
-    def test_compare_inventory_numbers_with_valid_match_asset(self):
-        """Test that `_compare_inventory_numbers` updates the `record_type` correctly
-        when there is a valid `match_asset` relationship.
+    def test_validate_match_asset_relationships_when_inv_nos_do_not_match(self):
+        """Test that `_validate_match_asset_relationships`
+        returns False and logs expected error
+        when the inventory numbers of the match_asset and target record do not match.
         """
-        # Test cases comprised of (record with match, matched record, expected_result)
-        test_cases = (
-            (
-                {
-                    "uuid": "09876",
-                    "inventory_numbers": ["INV001"],
-                    "match_asset": "12345",
-                },  # record with match
-                {
-                    "uuid": "12345",
-                    "inventory_numbers": ["INV001"],
-                },  # matched record
-                {
-                    "uuid": "09876",
-                    "inventory_numbers": ["INV001"],
-                    "match_asset": "12345",
-                    "record_type": "track",
-                },  # expected result
-            ),  # where inventory numbers match the target match_asset, should be track
-            (
-                {
-                    "uuid": "09876",
-                    "inventory_numbers": ["INV002"],
-                    "match_asset": "12345",
-                },  # record with match
-                {
-                    "uuid": "12345",
-                    "inventory_numbers": ["INV001"],
-                },  # matched record
-                {
-                    "uuid": "09876",
-                    "inventory_numbers": ["INV002"],
-                    "match_asset": "12345",
-                    "record_type": "asset",
-                },  # expected result
-            ),  # where inventory numbers do not match the target match_asset, should be asset
-            (
-                {
-                    "uuid": "09876",
-                    "inventory_numbers": [],
-                    "match_asset": "12345",
-                },  # record with match
-                {
-                    "uuid": "12345",
-                    "inventory_numbers": ["INV001"],
-                },  # matched record
-                {
-                    "uuid": "09876",
-                    "inventory_numbers": [],
-                    "match_asset": "12345",
-                    "record_type": "asset",
-                },  # expected result
-            ),  # where either inventory number is missing, should be asset
-        )
+        test_records = [
+            {"uuid": "12345", "inventory_numbers": ["INV001"], "record_type": "asset"},
+            {"uuid": "67890", "inventory_numbers": ["INV002"], "record_type": "asset"},
+            {
+                "uuid": "09876",
+                "inventory_numbers": ["INV003"],  # inv no does not match the target
+                "match_asset": "12345",
+                "record_type": "track",
+            },
+        ]
 
-        for test_case in test_cases:
-            with self.subTest(test_case=test_case):
-                test_record, test_matched_record, expected_result = test_case
-                result_record = _compare_inventory_numbers(
-                    test_record, test_matched_record
-                )
-                self.assertEqual(result_record, expected_result)
+        result = _validate_match_asset_relationships(test_records)
+        self.assertFalse(result)
+        self.assertIn(
+            (
+                "ERROR: Inventory numbers do not match for match_asset relationship "
+                "track 09876: 'INV003', asset 12345: 'INV001'"
+            ),
+            self.stream.getvalue(),
+        )
