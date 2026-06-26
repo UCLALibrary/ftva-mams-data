@@ -158,12 +158,13 @@ def _get_alma_bib_record_with_possible_suffix(
     inv_no_stem: str,
     alma_sru_client: AlmaSRUClient,
 ) -> Pymarc_Record | None:
-    """Get the Alma bib record for the provided inventory number,
+    """Get the first matching Alma bib record for the provided inventory number,
     retrying with suffixes "T", "M", and "R" if no record is found without suffix.
 
     :param inv_no_stem: The base inventory number to search for.
     :param alma_sru_client: The AlmaSRUClient instance to use to get the bib record.
-    :return: Matching Alma bib record, or None if no record is found.
+    :return: The first Alma record matching the inventory number,
+        or None if no record is found.
     """
     # Try no suffix first, then "T", "M", and "R".
     # NOTE: The additional suffixes are a shim
@@ -192,14 +193,16 @@ def _get_filemaker_record(
     inventory_number: str,
     filemaker_client: FilemakerClient,
 ) -> FM_Record | None:
-    """Get the FileMaker record for the provided inventory number,
+    """Get the first matching FileMaker record for the provided inventory number,
     or None if no record is found.
 
     :param inventory_number: The inventory number to search for.
     :param filemaker_client: The FilemakerClient instance to use to get the FM record.
-    :return: The FileMaker record, or None if no record is found.
+    :return: The first FileMaker record matching inventory number,
+        or None if no record is found.
     """
     filemaker_records = filemaker_client.search_by_inventory_number(inventory_number)
+    # If search returns multiple records, return only the first
     return filemaker_records[0] if filemaker_records else None
 
 
