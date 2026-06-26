@@ -1,8 +1,8 @@
-import csv
 import json
 import argparse
 import tomllib
 import logging
+import spacy
 from datetime import datetime
 from pathlib import Path
 from ftva_etl import (
@@ -12,10 +12,10 @@ from ftva_etl import (
     get_mams_metadata,
 )
 from ftva_etl.metadata.utils import filter_by_inventory_number_and_library
-from requests.exceptions import HTTPError
-from warnings import deprecated
-from pymarc import Record
 
+# For type hints
+from pymarc import Record as Pymarc_Record
+from fmrest.record import Record as FM_Record
 
 # Module-level logger used throughout this module.
 # Handlers are configured explicitly via `configure_logging`.
@@ -51,19 +51,22 @@ def configure_logging(console_logging: bool = True) -> None:
 def _get_arguments() -> argparse.Namespace:
     """Parse command line arguments.
 
-    :return: Parsed arguments for config_file, input_file, and
-    output_file as a Namespace object."""
-    parser = argparse.ArgumentParser(description="Process metadata for MAMS ingestion.")
+    :return: Parsed arguments for the program."""
+    parser = argparse.ArgumentParser(
+        description="Prepare JSON metadata for MAMS ingestion."
+    )
     parser.add_argument(
+        "-c",
         "--config_file",
         help="Path to configuration file with API credentials.",
         required=True,
     )
     parser.add_argument(
-        "--input_file",
+        "-b",
+        "--batch_number",
         type=str,
         required=True,
-        help="Path to the input CSV file containing records to be processed.",
+        help="Alphanumeric batch number to fetch records from Digital Data.",
     )
     parser.add_argument(
         "--output_dir",
@@ -71,13 +74,6 @@ def _get_arguments() -> argparse.Namespace:
         default="output/",
         required=False,
         help="Path to the output directory where JSON files will be saved. Defaults to 'output/'.",
-    )
-    parser.add_argument(
-        "--split_dpx_audio",
-        action="store_true",
-        required=False,
-        help="If specified, split output JSON into DPX, DPX Audio, and Non-DPX files.",
-        deprecated=True,
     )
     parser.add_argument(
         "--disable_console_logging",
@@ -99,21 +95,11 @@ def _get_config(config_file_name: str) -> dict:
     return config
 
 
-def _read_input_file(file_path: str) -> list[dict]:
-    """Read the input CSV file and return a list of dictionaries.
-
-    :param file_path: Path to the input CSV file.
-    :return: List of dictionaries representing each row in the CSV file."""
-    with open(file_path, mode="r", encoding="utf-8-sig") as file:
-        reader = csv.DictReader(file)
-        return [row for row in reader]
-
-
 def _write_output_file(output_file: str | Path, data: dict | list[dict]) -> None:
     """Write processed data to a JSON file.
 
     :param output_file: Path to the output JSON file.
-    :param data: List of dicts containing processed metadata."""
+    :param data: Dict or list of dicts to write to the output file."""
     output_path = Path(output_file)
     # Create parent directories if they don't exist.
     # Allows for `output_file` to be a relative path.
@@ -140,29 +126,56 @@ def _initialize_clients(
     )
 
 
-def _get_alma_bib_record(
+def _get_records_by_batch_number(
+    batch_number: str,
+    digital_data_client: DigitalDataClient,
+) -> list[dict]:
+    """Get records filtered by batch number from the Digital Data application.
+
+    :param batch_number: The alphanumeric batch number to filter by.
+    :param digital_data_client: The DigitalDataClient instance to use to get the records.
+    :return: A list of records.
+    """
+    all_records: list[dict] = []
+    offset = 0
+    while True:
+        response = digital_data_client.get_records(
+            query=batch_number,
+            fields=["batch_number"],
+            offset=offset,
+        )
+        records = response.get("records", [])
+        all_records.extend(records)
+        offset += len(records)
+        # Break if pagination reaches end of records,
+        # or if a problem causes API to return no records before then.
+        if offset >= response.get("total_records", 0) or not records:
+            break
+    return all_records
+
+
+def _get_alma_bib_record_with_possible_suffix(
     inv_no_stem: str,
     alma_sru_client: AlmaSRUClient,
-) -> Record | None:
-    """Get the Alma bib record for the provided inventory number,
+) -> Pymarc_Record | None:
+    """Get the first matching Alma bib record for the provided inventory number,
     retrying with suffixes "T", "M", and "R" if no record is found without suffix.
 
     :param inv_no_stem: The base inventory number to search for.
     :param alma_sru_client: The AlmaSRUClient instance to use to get the bib record.
-    :return: Matching Alma bib record, or None if no record is found.
+    :return: The first Alma record matching the inventory number,
+        or None if no record is found.
     """
     # Try no suffix first, then "T", "M", and "R".
     # NOTE: The additional suffixes are a shim
     # to deal with inconsistent inventory numbers across systems.
     suffixes = ["", "T", "M", "R"]
     inv_nos_to_check = [inv_no_stem + suffix for suffix in suffixes]
-    # There may not be any matches - if so, this is a "1-to-1" record,
-    # so we'll use only DD and FM data.
     bib_record = None
     for inv_no in inv_nos_to_check:
         search_results = alma_sru_client.search_by_call_number(inv_no)
-        filtered_bib_records: list[Record] = filter_by_inventory_number_and_library(
-            search_results, inv_no
+        filtered_bib_records: list[Pymarc_Record] = (
+            filter_by_inventory_number_and_library(search_results, inv_no)
         )
         if filtered_bib_records:
             # Take the first record that matches the inventory number and is from FTVA
@@ -176,240 +189,123 @@ def _get_alma_bib_record(
     return bib_record
 
 
-def _process_input_data(
-    input_data: list[dict],
+def _get_filemaker_record(
+    inventory_number: str,
+    filemaker_client: FilemakerClient,
+) -> FM_Record | None:
+    """Get the first matching FileMaker record for the provided inventory number,
+    or None if no record is found.
+
+    :param inventory_number: The inventory number to search for.
+    :param filemaker_client: The FilemakerClient instance to use to get the FM record.
+    :return: The first FileMaker record matching inventory number,
+        or None if no record is found.
+    """
+    filemaker_records = filemaker_client.search_by_inventory_number(inventory_number)
+    # If search returns multiple records, return only the first
+    return filemaker_records[0] if filemaker_records else None
+
+
+def _get_metadata_records(
+    digital_data_records: list[dict],
     alma_sru_client: AlmaSRUClient,
     filemaker_client: FilemakerClient,
-    digital_data_client: DigitalDataClient,
 ) -> list[dict]:
-    """Process input data and return a list of metadata records, plus counts of assets and tracks.
+    """For each Digital Data record,
+    fetch the corresponding FileMaker record, and possibly the Alma record,
+    then use `ftva_etl` to get the resulting metadata record.
 
-    :param input_data: The input data to process.
+    :param digital_data_records: Digital Data records to process.
     :param alma_sru_client: The AlmaSRUClient instance to use to get the bib record.
     :param filemaker_client: The FilemakerClient instance to use to get the FM record.
-    :param digital_data_client: The DigitalDataClient instance to use to get the DD record.
-    :return: A list of metadata records.
+    :return: A list of metadata records formatted for ingest into the MAMS.
     """
     metadata_records = []
+    # Load spacy model used by `ftva_etl` once per batch,
+    # to avoid loading it in the package for each record
+    nlp_model = spacy.load("en_core_web_md")
 
-    for row in input_data:
-        # Adding `try/except` block to prevent the program from crashing if a record
-        # is not found. This would happen if the dev and prod databases are out of sync.
-        try:
-            digital_data_record = digital_data_client.get_record_by_id(
-                row["dl_record_id"]
+    for digital_data_record in digital_data_records:
+        # Use inventory number to find corresponding FM record and possibly Alma record
+        inventory_number = digital_data_record["inventory_number"]
+
+        filemaker_record = _get_filemaker_record(inventory_number, filemaker_client)
+        # Metadata output requires DD-FM match at minimum,
+        # so log an error and skip the current DD record if no FM record is found.
+        if not filemaker_record:
+            logger.error(
+                f"No FileMaker record found for inventory number '{inventory_number}' "
+                f"on DD record {digital_data_record['id']}. "
+                "Skipping current record."
             )
-            inventory_number = digital_data_record["inventory_number"]
+            continue  # skip to next DD record
 
-            bib_record = _get_alma_bib_record(inventory_number, alma_sru_client)
-            if not bib_record:
-                logger.warning(
-                    f"No Alma bib record found for inventory number '{inventory_number}' "
-                    f"on record {row['dl_record_id']}. Proceeding with DD and FM data only."
-                )
-                continue
+        bib_record = _get_alma_bib_record_with_possible_suffix(
+            inventory_number, alma_sru_client
+        )
+        # Missing Alma record is OK, so log a warning and proceed with batch
+        if not bib_record:
+            logger.warning(
+                f"No Alma bib record found for inventory number '{inventory_number}' "
+                f"on DD record {digital_data_record['id']}. "
+                "Proceeding with DD and FM data only."
+            )
 
-            filemaker_record = filemaker_client.search_by_inventory_number(
-                inventory_number
-            )[0]
-        except HTTPError as error:
-            if error.response.status_code == 404:
-                logger.error(f"Record {row['dl_record_id']} not found in Digital Data.")
-            else:
-                logger.error(error)
-            continue
-
-        # Initialize to None. Will be set to UUID if record is a track.
-        match_asset_uuid = None
-        if row["Audio Track?"].lower().strip() == "yes":
-            match_asset_uuid = row["match_asset"]
-            if not match_asset_uuid:
-                logger.error(
-                    f"Record {row['dl_record_id']} is marked as a track, "
-                    "but no UUID for the match asset is provided."
-                )
-                continue
-
+        # Get formatted metadata record from `ftva_etl`
+        # using DD record, corresponding FM record, and possibly Alma record
         metadata_record = get_mams_metadata(
             digital_data_record=digital_data_record,
             filemaker_record=filemaker_record,
-            bib_record=bib_record,
-            match_asset_uuid=match_asset_uuid,
+            bib_record=bib_record,  # can be None if no Alma record found for inv no
+            nlp_model=nlp_model,
         )
-
-        # Add temporary field for file_type to be used later for DPX splitting
-        metadata_record["file_type"] = digital_data_record.get("file_type", "")
 
         metadata_records.append(metadata_record)
     return metadata_records
 
 
-def _update_match_record_type(record_with_match: dict, matched_record: dict) -> dict:
-    """Check if the match_asset relationship is valid between two records. If valid,
-    set record_type to 'track' on the record_with_match. If not valid, set record_type
-    to 'asset'.
+def _validate_match_asset_relationships(metadata_records: list[dict]) -> bool:
+    """For each metadata record with a `match_asset` field, check that:
 
-    :param record_with_match: The record that has a match_asset field.
-    :param matched_record: The record that is being matched against.
-    :return: The updated record_with_match dict with record_type set to 'track' or 'asset'.
-    """
-    asset_inv_list = matched_record.get("inventory_numbers") or []
-    asset_inv = asset_inv_list[0] if len(asset_inv_list) > 0 else None
-    track_inv_list = record_with_match.get("inventory_numbers") or []
-    track_inv = track_inv_list[0] if len(track_inv_list) > 0 else None
-
-    if asset_inv == track_inv:
-        # This is a track
-        record_with_match["record_type"] = "track"
-        logger.info(
-            f"Valid match_asset relationship found for inventory number '{asset_inv}'."
-        )
-        return record_with_match
-
-    elif not asset_inv or not track_inv:
-        # One or both inventory numbers are missing
-        # Treat as individual assets
-        logger.info(
-            f"One or both inventory numbers are missing (asset_inv='{asset_inv}', "
-            f"track_inv='{track_inv}'). Treated as individual assets."
-        )
-        record_with_match["record_type"] = "asset"
-        return record_with_match
-
-    else:
-        # Inventory numbers do not match
-        # Treat as individual assets
-        logger.info(
-            f"Inventory numbers do not match (asset_inv='{asset_inv}', "
-            f"track_inv='{track_inv}'). Treated as individual assets."
-        )
-        record_with_match["record_type"] = "asset"
-        return record_with_match
-
-
-def _set_record_type(metadata_records: list[dict]) -> list[dict]:
-    """Set the `record_type` for each metadata record based on its `match_asset` value.
+    1. the match_asset value actually references another record in the batch; and
+    2. the first inventory numbers of the two related records are the same.
 
     :param metadata_records: List of metadata records.
-    :return: List of metadata records with `record_type` set.
+    :return: True if all match_asset relationships are valid, False otherwise.
     """
-    for record in metadata_records:
-        # If the record has a match_asset value,
-        # validate the relationship and update `record_type` as indicated
-        if record.get("match_asset"):
-            matched_record = next(
-                (r for r in metadata_records if r.get("uuid") == record["match_asset"]),
-                None,
-            )
-            if not matched_record:
-                logger.error(
-                    f"Match asset {record['match_asset']} "
-                    f"for record {record['uuid']} not found in metadata records."
-                )
-                continue
-            record = _update_match_record_type(record, matched_record)
-        # Else default to 'asset'
-        else:
-            record["record_type"] = "asset"
-    return metadata_records
-
-
-@deprecated("Metadata records no longer need to be split into separate JSON outputs.")
-def _split_dpx_records(metadata_records: list[dict]) -> dict[str, list[dict]]:
-    """Split metadata records into DPX, DPX Audio, and Non-DPX categories.
-
-    :param metadata_records: List of metadata records.
-    :return: A dictionary with keys 'DPX', 'DPX Audio', and 'Non-DPX', each containing
-    a list of corresponding metadata records."""
-    dpx_records = []
-    dpx_audio_records = []
-    non_dpx_records = []
-
-    # Define audio file types for DPX Audio category
-    audio_file_types = [
-        "WAV",
-        "BWF",
-        "AIFF",
-        "MP3",
-        "AVI",
-        "RM",
-        "RMVB",
-        "AMV",
-        "ASF",
-        "3GPP",
-        "3GGP2",
-    ]
-    # Process each record and categorize
-    # We will do two passes: first for DPX assets, then all others.
-    # This ensures that when processing DPX Audio records, we have already
-    # collected all DPX assets to check for valid match_asset relationships.
-    unassigned_records = metadata_records.copy()
-    for record in metadata_records:
-        inv_list = record.get("inventory_numbers") or []
-        inventory_number = inv_list[0] if len(inv_list) > 0 else None
-        # Categorize records
-        # DPX: file_type = 'DPX', media_type = 'video', asset_type = 'Raw' or 'Intermediate'
-        if (
-            record.get("file_type", "").upper() == "DPX"
-            and record.get("media_type", "").lower() == "video"
-            and record.get("asset_type", "").lower() in ["raw", "intermediate"]
-        ):
-            logger.info(
-                f"DPX record found: Inventory Number '{inventory_number}',"
-                f" UUID '{record.get('uuid')}'. Adding to DPX JSON."
-            )
-            record["record_type"] = "asset"
-            dpx_records.append(record)
-            unassigned_records.remove(record)
-
-    # Second pass for DPX Audio and Non-DPX
-    for record in unassigned_records:
-        inv_list = record.get("inventory_numbers") or []
-        inventory_number = inv_list[0] if len(inv_list) > 0 else None
-        # DPX Audio: file_type in list above, media_type = 'audio', asset_type = 'Raw'
-        if (
-            record.get("file_type", "").upper() in audio_file_types
-            and record.get("media_type", "").lower() == "audio"
-            and record.get("asset_type", "").lower() == "raw"
-        ):
-            logger.info(
-                f"DPX Audio candidate found: Inventory Number '{inventory_number},"
-                f" UUID '{record.get('uuid')}'. Checking match_asset relationship."
-            )
-            # Check for valid match_asset relationship
-            if "match_asset" in record:
-                matched_asset_uuid = record["match_asset"]
-                matched_asset = next(
-                    (r for r in dpx_records if r.get("uuid") == matched_asset_uuid),
-                    None,
-                )
-                if matched_asset:
-                    record = _update_match_record_type(record, matched_asset)
-                if record.get("record_type") == "track":
-                    logger.info(
-                        f"Record with Inventory Number '{inventory_number}' "
-                        "is a valid DPX Audio track. Adding to DPX Audio JSON."
-                    )
-                    dpx_audio_records.append(record)
-                    continue  # Move to next record if it's a valid track
-                elif record.get("record_type") == "asset":
-                    # Treated as individual asset
-                    non_dpx_records.append(record)
-                    continue  # Move to next record if treated as individual asset
-
-        # Non-DPX: all other records
-        else:
-            logger.info(
-                f"Non-DPX record found: Inventory Number '{inventory_number},'"
-                f" UUID '{record.get('uuid')}'. Adding to Non-DPX JSON."
-            )
-            record["record_type"] = "asset"
-            non_dpx_records.append(record)
-    return {
-        "DPX": dpx_records,
-        "DPX Audio": dpx_audio_records,
-        "Non-DPX": non_dpx_records,
+    # Index records by UUID for quick lookup below
+    records_by_uuid = {
+        record["uuid"]: record for record in metadata_records if record.get("uuid")
     }
+
+    for record in metadata_records:
+        # Skip records without a `match_asset` field
+        match_asset_uuid = record.get("match_asset")
+        if not match_asset_uuid:
+            continue
+
+        matched_record = records_by_uuid.get(match_asset_uuid)
+        # Fail validation if the match_asset is not found in the batch
+        if not matched_record:
+            logger.error(
+                f"Match asset {match_asset_uuid} for record {record['uuid']} "
+                f"not found in batch."
+            )
+            return False
+
+        # Now check inventory numbers, using the first inv no for each record
+        record_inv = (record.get("inventory_numbers") or [None])[0]
+        matched_record_inv = (matched_record.get("inventory_numbers") or [None])[0]
+
+        # Fail validation if inventory numbers do not match
+        if record_inv != matched_record_inv:
+            logger.error(
+                f"Inventory numbers do not match for match_asset relationship "
+                f"{record['record_type']} {record['uuid']}: '{record_inv}', "
+                f"{matched_record['record_type']} {matched_record['uuid']}: '{matched_record_inv}'"
+            )
+            return False
+    return True
 
 
 def _count_assets_and_tracks(metadata_records: list[dict]) -> tuple[int, int]:
@@ -431,45 +327,37 @@ def main() -> None:
     configure_logging(console_logging=not args.disable_console_logging)
     config = _get_config(args.config_file)
 
-    # Read input file
-    logger.info(f"Loading input data from {args.input_file}")
-    input_data = _read_input_file(args.input_file)
-    logger.info(f"Loaded {len(input_data)} records from input file.")
-
     alma_sru_client, filemaker_client, digital_data_client = _initialize_clients(config)
 
-    metadata_records = _process_input_data(
-        input_data, alma_sru_client, filemaker_client, digital_data_client
+    logger.info(
+        f"Fetching records for batch number {args.batch_number} from Digital Data..."
+    )
+    digital_data_records = _get_records_by_batch_number(
+        args.batch_number, digital_data_client
+    )
+    logger.info(
+        f"Retrieved {len(digital_data_records)} records for batch number {args.batch_number}."
     )
 
-    # Save processed data to JSON file named after the input file.
-    output_filename_stem = Path(args.input_file).stem
-    if args.split_dpx_audio:
-        logger.info("Splitting output JSON into DPX, DPX Audio, and Non-DPX files.")
-        split_data = _split_dpx_records(metadata_records)
-        for key, records in split_data.items():
-            # Remove temporary 'file_type' field before output
-            for record in records:
-                record.pop("file_type", None)
-            output_dict = {"media": {"assets": records}}
-            filename = f"{output_filename_stem}_{key.replace(' ', '_')}.json"
-            _write_output_file(Path(args.output_dir, filename), output_dict)
-        logger.info(f"DPX split JSON files saved to '{args.output_dir}'")
-    else:
-        # Set `record_type` on metadata records
-        metadata_records = _set_record_type(metadata_records)
-        # Remove temporary 'file_type' field before output
-        for record in metadata_records:
-            if record.get("file_type") not in [
-                "DPX",
-                "DCP",
-            ]:  # Keep `file_type` on DPX and DCP records
-                record.pop("file_type", None)
-        output_dict = {"media": {"assets": metadata_records}}
-        _write_output_file(
-            Path(args.output_dir, f"{output_filename_stem}.json"), output_dict
+    metadata_records = _get_metadata_records(
+        digital_data_records, alma_sru_client, filemaker_client
+    )
+
+    # If match_asset relationships are invalid, log an error and exit
+    if not _validate_match_asset_relationships(metadata_records):
+        logger.error(
+            "Invalid match_asset relationships found in metadata records. Review logs for details."
         )
-        logger.info(f"Output JSON file saved to '{args.output_dir}'")
+        return
+
+    output_dict = {"media": {"assets": metadata_records}}
+
+    output_filename_stem = f"dd_records_ingest_{args.batch_number}"
+    date_suffix = datetime.now().strftime("%Y-%m-%d")
+    output_path = Path(args.output_dir, f"{output_filename_stem}_{date_suffix}.json")
+    _write_output_file(output_path, output_dict)
+
+    logger.info(f"Output JSON file saved to '{output_path}'")
 
     asset_count, track_count = _count_assets_and_tracks(metadata_records)
     logger.info(
