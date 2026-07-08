@@ -7,11 +7,10 @@ import sys
 
 from datetime import datetime
 from pathlib import Path
-from ftva_etl import (
-    AlmaSRUClient,
-    FilemakerClient,
-    get_mams_metadata_for_new_media,
-)
+from ftva_etl import AlmaSRUClient, FilemakerClient, get_mams_metadata_ndm
+from utils.alma_utils import get_alma_bib_record_with_possible_suffix
+
+from fmrest.record import Record
 
 # Module-level logger used throughout this module.
 # Handlers are configured explicitly via `_configure_logging`.
@@ -19,17 +18,38 @@ LOGGER = logging.getLogger(Path(__file__).stem)
 
 
 # ---------------------------------------------------------------------------
-# Main batching logic
+# Data fetching functions
 # ---------------------------------------------------------------------------
-def _get_fm_item_unit_records_for_batch(
+def _get_fm_inventory_records_indexed_by_inventory_id(
+    config: dict,
+) -> dict[int, Record]:
+    """Get all digital inventory records indexed by inventory ID
+    from the "NEW DIGITAL_API" layout in Filemaker.
+
+    :param config: Config dict with Filemaker API credentials.
+    :return: A dict of digital inventory records indexed by inventory ID.
+    """
+    fm_inventory_layout = "NEW DIGITAL_API"
+    fm_client = FilemakerClient(
+        config["filemaker"]["user"],
+        config["filemaker"]["password"],
+        layout=fm_inventory_layout,
+    )
+    # `digital_record` field necessary to filter for digital inventory records
+    query = [{"digital_record": "1"}]
+    fm_inventory_records = fm_client.find_all_records(query=query)
+    return {record["inventory_id"]: record for record in fm_inventory_records}
+
+
+def _get_fm_item_records_indexed_by_uuid(
     config: dict, input_data: list[dict]
-) -> list[dict]:
-    """Get the item unit records for the batch from Filemaker.
+) -> dict[str, Record]:
+    """Get all item unit records indexed by UUID
+    from the "New Digital DMIU" layout in Filemaker.
 
     :param config: Config dict with Filemaker API credentials.
     :param input_data: Input data as a list of dicts.
-    :return: A list of item unit records representing the batch.
-    :raises SystemExit: If an input UUID is not found in the item unit records.
+    :return: A dict of item unit records indexed by UUID.
     """
 
     # Item unit records are stored in the "Digital Media Item Unit" table,
@@ -40,28 +60,70 @@ def _get_fm_item_unit_records_for_batch(
         config["filemaker"]["password"],
         layout=fm_item_unit_layout,
     )
-    # `find_all_records` returns all records available on the layout
-    # by iterating through all pages of results, but it requires a query parameter,
-    # so we use a wildcard on UUID, which should never be null and therefore yields all records
+    # `find_all_records` requires a query parameter, so we use a wildcard on UUID here,
+    # which should never be null and therefore yields all records
     fm_item_unit_records = fm_client.find_all_records(query=[{"UUID": "*"}])
-    # Index item units by UUID for quick lookup below
-    fm_item_unit_records_by_uuid = {
-        record["UUID"]: record for record in fm_item_unit_records
-    }
-    # Now build the batch by from the input data
-    batch_records = []
+    # Index item units by UUID for quick lookup later
+    return {record["UUID"]: record for record in fm_item_unit_records}
+
+
+# ---------------------------------------------------------------------------
+# Metadata generation
+# ---------------------------------------------------------------------------
+def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
+    """Get metadata records for MAMS ingest,
+    using input data to fetch necessary sources from Filemaker and possibly Alma.
+
+    :param config: Config dict with API credentials.
+    :param input_data: Input data as a list of dicts.
+    :return: A list of metadata records.
+    """
+    # Alma SRU client for use below
+    alma_sru_client = AlmaSRUClient()
+
+    # Build indexes for Filemaker item records and inventory records for quick lookup below
+    fm_item_records_indexed_by_uuid = _get_fm_item_records_indexed_by_uuid(
+        config, input_data
+    )
+    fm_inventory_records_indexed_by_inventory_id = (
+        _get_fm_inventory_records_indexed_by_inventory_id(config)
+    )
+
+    metadata_records = []
     for row in input_data:
-        batch_record = fm_item_unit_records_by_uuid.get(row["UUID"])
-        # Fail the batch if a UUID is not found in the item unit records
-        if not batch_record:
+        # Lookup item record by UUID in index, failing batch if any not found
+        item_record = fm_item_records_indexed_by_uuid.get(row["UUID"])
+        if not item_record:
+            LOGGER.error(f"Item record not found for UUID {row['UUID']}")
+            sys.exit(1)
+        # Now lookup inventory record using `inventory_id_fk` from item record,
+        # failing batch if the related inventory record is not found
+        inventory_record = fm_inventory_records_indexed_by_inventory_id.get(
+            item_record["inventory_id_fk"]
+        )
+        if not inventory_record:
             LOGGER.error(
-                f"Item unit record not found for UUID: {row['UUID']}. Exiting."
+                f"Inventory record not found for inventory ID {item_record['inventory_id_fk']} "
+                f"on item record {item_record['UUID']}"
             )
             sys.exit(1)
-        batch_records.append(batch_record)
-    return batch_records
+        # Search for Alma bib record matching inventory number, with retries for possible suffixes
+        alma_bib_record = get_alma_bib_record_with_possible_suffix(
+            inventory_record["inventory_no"], alma_sru_client, LOGGER
+        )
+        # Set match asset if present
+        match_asset = row["match asset UUID"].strip() or None
+
+        metadata_record = get_mams_metadata_ndm(
+            item_record, inventory_record, alma_bib_record, match_asset
+        )
+        metadata_records.append(metadata_record)
+    return metadata_records
 
 
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
 def _validate_match_asset_relationships(metadata_records: list[dict]) -> bool:
     """For each metadata record with a `match_asset` field, check that:
 
@@ -238,15 +300,29 @@ def main() -> None:
 
     input_data = _read_input_file(args.input_file)
 
-    batch_records = _get_fm_item_unit_records_for_batch(config, input_data)
+    metadata_records = _get_metadata_records(config, input_data)
 
-    metadata_records = _get_metadata_records_for_new_media(batch_records)
+    # If match_asset relationships are invalid, log an error and exit
+    if not _validate_match_asset_relationships(metadata_records):
+        LOGGER.error(
+            "Invalid match_asset relationships found in metadata records. Review logs for details."
+        )
+        return
 
-    # TODO:
-    # 1) Validate match-asset relationships
-    # 2) Count assets and tracks
-    # 3) Write output
-    # 4) Print summary
+    output_dict = {"media": {"assets": metadata_records}}
+
+    output_path = Path(
+        args.output_dir,
+        f"ndm_records_ingest_{datetime.now().strftime("%Y-%m-%d")}.json",
+    )
+    _write_output_file(output_path, output_dict)
+
+    LOGGER.info(f"Output JSON file saved to '{output_path}'")
+
+    asset_count, track_count = _count_assets_and_tracks(metadata_records)
+    LOGGER.info(
+        f"Processing complete. {asset_count} assets and {track_count} tracks processed."
+    )
 
 
 if __name__ == "__main__":
