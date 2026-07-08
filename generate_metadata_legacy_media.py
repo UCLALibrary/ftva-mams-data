@@ -1,6 +1,4 @@
-import json
 import argparse
-import tomllib
 import logging
 import spacy
 from datetime import datetime
@@ -11,120 +9,19 @@ from ftva_etl import (
     DigitalDataClient,
     get_mams_metadata,
 )
-from utils.alma_utils import get_alma_bib_record_with_possible_suffix
+from utils import alma_utils, generate_metadata_utils as gm_utils
 
 # For type hints
 from fmrest.record import Record as FM_Record
 
 # Module-level logger used throughout this module.
 # Handlers are configured explicitly via `configure_logging`.
-logger = logging.getLogger(Path(__file__).stem)
+LOGGER = logging.getLogger(Path(__file__).stem)
 
 
-def configure_logging(console_logging: bool = True) -> None:
-    """Configure logging for this program.
-
-    By default, logs are written to a timestamped file in `logs/` and to the console.
-    Console logging can be disabled by passing `console_logging=False`.
-
-    :param console_logging: Whether to enable console (stdout) logging.
-    """
-    logs_dir = Path("logs")
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = logs_dir / f"{logger.name}_{timestamp}.log"  # use logger name for file
-
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    if console_logging:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-
-
-def _get_arguments() -> argparse.Namespace:
-    """Parse command line arguments.
-
-    :return: Parsed arguments for the program."""
-    parser = argparse.ArgumentParser(
-        description="Prepare JSON metadata for MAMS ingestion."
-    )
-    parser.add_argument(
-        "-c",
-        "--config_file",
-        help="Path to configuration file with API credentials.",
-        required=True,
-    )
-    parser.add_argument(
-        "-b",
-        "--batch_number",
-        type=str,
-        required=True,
-        help="Alphanumeric batch number to fetch records from Digital Data.",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default="output/",
-        required=False,
-        help="Path to the output directory where JSON files will be saved. Defaults to 'output/'.",
-    )
-    parser.add_argument(
-        "--disable_console_logging",
-        action="store_true",
-        required=False,
-        help="Disable console logging.",
-    )
-    return parser.parse_args()
-
-
-def _get_config(config_file_name: str) -> dict:
-    """Returns configuration for this program, loaded from TOML file.
-
-    :param config_file_name: Path to the configuration file.
-    :return: Configuration dictionary."""
-
-    with open(config_file_name, "rb") as f:
-        config = tomllib.load(f)
-    return config
-
-
-def _write_output_file(output_file: str | Path, data: dict | list[dict]) -> None:
-    """Write processed data to a JSON file.
-
-    :param output_file: Path to the output JSON file.
-    :param data: Dict or list of dicts to write to the output file."""
-    output_path = Path(output_file)
-    # Create parent directories if they don't exist.
-    # Allows for `output_file` to be a relative path.
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, mode="w", encoding="utf-8") as file:
-        json.dump(data, file, indent=4)
-
-
-def _initialize_clients(
-    config: dict,
-) -> tuple[AlmaSRUClient, FilemakerClient, DigitalDataClient]:
-    """Initialize the clients for the program.
-
-    :param config: The program's configuration dict.
-    :return: A tuple of the initialized clients."""
-    return (
-        AlmaSRUClient(),
-        FilemakerClient(config["filemaker"]["user"], config["filemaker"]["password"]),
-        DigitalDataClient(
-            config["digital_data"]["user"],
-            config["digital_data"]["password"],
-            config["digital_data"]["url"],
-        ),
-    )
-
-
+# ---------------------------------------------------------------------------
+# Data fetching
+# ---------------------------------------------------------------------------
 def _get_records_by_batch_number(
     batch_number: str,
     digital_data_client: DigitalDataClient,
@@ -197,19 +94,19 @@ def _get_metadata_records(
         # Metadata output requires DD-FM match at minimum,
         # so log an error and skip the current DD record if no FM record is found.
         if not filemaker_record:
-            logger.error(
+            LOGGER.error(
                 f"No FileMaker record found for inventory number '{inventory_number}' "
                 f"on DD record {digital_data_record['id']}. "
                 "Skipping current record."
             )
             continue  # skip to next DD record
 
-        bib_record = get_alma_bib_record_with_possible_suffix(
-            inventory_number, alma_sru_client, logger
+        bib_record = alma_utils.get_alma_bib_record_with_possible_suffix(
+            inventory_number, alma_sru_client, LOGGER
         )
         # Missing Alma record is OK, so log a warning and proceed with batch
         if not bib_record:
-            logger.warning(
+            LOGGER.warning(
                 f"No Alma bib record found for inventory number '{inventory_number}' "
                 f"on DD record {digital_data_record['id']}. "
                 "Proceeding with DD and FM data only."
@@ -228,78 +125,109 @@ def _get_metadata_records(
     return metadata_records
 
 
-def _validate_match_asset_relationships(metadata_records: list[dict]) -> bool:
-    """For each metadata record with a `match_asset` field, check that:
+# ---------------------------------------------------------------------------
+# Client initialization
+# ---------------------------------------------------------------------------
+def _initialize_clients(
+    config: dict,
+) -> tuple[AlmaSRUClient, FilemakerClient, DigitalDataClient]:
+    """Initialize the clients for the program.
 
-    1. the match_asset value actually references another record in the batch; and
-    2. the first inventory numbers of the two related records are the same.
+    :param config: The program's configuration dict.
+    :return: A tuple of the initialized clients."""
+    return (
+        AlmaSRUClient(),
+        FilemakerClient(config["filemaker"]["user"], config["filemaker"]["password"]),
+        DigitalDataClient(
+            config["digital_data"]["user"],
+            config["digital_data"]["password"],
+            config["digital_data"]["url"],
+        ),
+    )
 
-    :param metadata_records: List of metadata records.
-    :return: True if all match_asset relationships are valid, False otherwise.
+
+# ---------------------------------------------------------------------------
+# CLI arguments and logging
+# ---------------------------------------------------------------------------
+def _configure_logging(console_logging: bool = True) -> None:
+    """Configure logging for this program.
+
+    By default, logs are written to a timestamped file in `logs/` and to the console.
+    Console logging can be disabled by passing `console_logging=False`.
+
+    :param console_logging: Whether to enable console (stdout) logging.
     """
-    # Index records by UUID for quick lookup below
-    records_by_uuid = {
-        record["uuid"]: record for record in metadata_records if record.get("uuid")
-    }
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = logs_dir / f"{LOGGER.name}_{timestamp}.log"  # use logger name for file
 
-    for record in metadata_records:
-        # Skip records without a `match_asset` field
-        match_asset_uuid = record.get("match_asset")
-        if not match_asset_uuid:
-            continue
+    LOGGER.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
 
-        matched_record = records_by_uuid.get(match_asset_uuid)
-        # Fail validation if the match_asset is not found in the batch
-        if not matched_record:
-            logger.error(
-                f"Match asset {match_asset_uuid} for record {record['uuid']} "
-                f"not found in batch."
-            )
-            return False
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    LOGGER.addHandler(file_handler)
 
-        # Now check inventory numbers, using the first inv no for each record
-        record_inv = (record.get("inventory_numbers") or [None])[0]
-        matched_record_inv = (matched_record.get("inventory_numbers") or [None])[0]
-
-        # Fail validation if inventory numbers do not match
-        if record_inv != matched_record_inv:
-            logger.error(
-                f"Inventory numbers do not match for match_asset relationship "
-                f"{record['record_type']} {record['uuid']}: '{record_inv}', "
-                f"{matched_record['record_type']} {matched_record['uuid']}: '{matched_record_inv}'"
-            )
-            return False
-    return True
+    if console_logging:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        LOGGER.addHandler(console_handler)
 
 
-def _count_assets_and_tracks(metadata_records: list[dict]) -> tuple[int, int]:
-    """Count the number of assets and tracks in the metadata records.
+def _get_arguments() -> argparse.Namespace:
+    """Parse command line arguments.
 
-    :param metadata_records: List of metadata records.
-    :return: A tuple containing the count of assets and tracks."""
-    asset_count = sum(
-        1 for record in metadata_records if record.get("record_type") == "asset"
+    :return: Parsed arguments for the program."""
+    parser = argparse.ArgumentParser(
+        description="Prepare JSON metadata for MAMS ingestion."
     )
-    track_count = sum(
-        1 for record in metadata_records if record.get("record_type") == "track"
+    parser.add_argument(
+        "-c",
+        "--config_file",
+        help="Path to configuration file with API credentials.",
+        required=True,
     )
-    return asset_count, track_count
+    parser.add_argument(
+        "-b",
+        "--batch_number",
+        type=str,
+        required=True,
+        help="Alphanumeric batch number to fetch records from Digital Data.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="output/",
+        required=False,
+        help="Path to the output directory where JSON files will be saved. Defaults to 'output/'.",
+    )
+    parser.add_argument(
+        "--disable_console_logging",
+        action="store_true",
+        required=False,
+        help="Disable console logging.",
+    )
+    return parser.parse_args()
 
 
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 def main() -> None:
     args = _get_arguments()
-    configure_logging(console_logging=not args.disable_console_logging)
-    config = _get_config(args.config_file)
+    _configure_logging(console_logging=not args.disable_console_logging)
+    config = gm_utils.get_config(args.config_file)
 
     alma_sru_client, filemaker_client, digital_data_client = _initialize_clients(config)
 
-    logger.info(
+    LOGGER.info(
         f"Fetching records for batch number {args.batch_number} from Digital Data..."
     )
     digital_data_records = _get_records_by_batch_number(
         args.batch_number, digital_data_client
     )
-    logger.info(
+    LOGGER.info(
         f"Retrieved {len(digital_data_records)} records for batch number {args.batch_number}."
     )
 
@@ -308,8 +236,8 @@ def main() -> None:
     )
 
     # If match_asset relationships are invalid, log an error and exit
-    if not _validate_match_asset_relationships(metadata_records):
-        logger.error(
+    if not gm_utils.validate_match_asset_relationships(metadata_records):
+        LOGGER.error(
             "Invalid match_asset relationships found in metadata records. Review logs for details."
         )
         return
@@ -319,12 +247,12 @@ def main() -> None:
     output_filename_stem = f"dd_records_ingest_{args.batch_number}"
     date_suffix = datetime.now().strftime("%Y-%m-%d")
     output_path = Path(args.output_dir, f"{output_filename_stem}_{date_suffix}.json")
-    _write_output_file(output_path, output_dict)
+    gm_utils.write_output_file(output_path, output_dict)
 
-    logger.info(f"Output JSON file saved to '{output_path}'")
+    LOGGER.info(f"Output JSON file saved to '{output_path}'")
 
-    asset_count, track_count = _count_assets_and_tracks(metadata_records)
-    logger.info(
+    asset_count, track_count = gm_utils.count_assets_and_tracks(metadata_records)
+    LOGGER.info(
         f"Processing complete. {asset_count} assets and {track_count} tracks processed."
     )
 
