@@ -39,14 +39,11 @@ def _get_fm_inventory_records_indexed_by_inventory_id(
     return {record["inventory_id"]: record for record in fm_inventory_records}
 
 
-def _get_fm_item_records_indexed_by_uuid(
-    config: dict, input_data: list[dict]
-) -> dict[str, Record]:
+def _get_fm_item_records_indexed_by_uuid(config: dict) -> dict[str, Record]:
     """Get all item unit records indexed by UUID
     from the "New Digital DMIU" layout in Filemaker.
 
     :param config: Config dict with Filemaker API credentials.
-    :param input_data: Input data as a list of dicts.
     :return: A dict of item unit records indexed by UUID.
     """
 
@@ -80,9 +77,7 @@ def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
     alma_sru_client = AlmaSRUClient()
 
     # Build indexes for Filemaker item records and inventory records for quick lookup below
-    fm_item_records_indexed_by_uuid = _get_fm_item_records_indexed_by_uuid(
-        config, input_data
-    )
+    fm_item_records_indexed_by_uuid = _get_fm_item_records_indexed_by_uuid(config)
     fm_inventory_records_indexed_by_inventory_id = (
         _get_fm_inventory_records_indexed_by_inventory_id(config)
     )
