@@ -11,10 +11,9 @@ from ftva_etl import (
     DigitalDataClient,
     get_mams_metadata,
 )
-from ftva_etl.metadata.utils import filter_by_inventory_number_and_library
+from utils.alma_utils import get_alma_bib_record_with_possible_suffix
 
 # For type hints
-from pymarc import Record as Pymarc_Record
 from fmrest.record import Record as FM_Record
 
 # Module-level logger used throughout this module.
@@ -154,41 +153,6 @@ def _get_records_by_batch_number(
     return all_records
 
 
-def _get_alma_bib_record_with_possible_suffix(
-    inv_no_stem: str,
-    alma_sru_client: AlmaSRUClient,
-) -> Pymarc_Record | None:
-    """Get the first matching Alma bib record for the provided inventory number,
-    retrying with suffixes "T", "M", and "R" if no record is found without suffix.
-
-    :param inv_no_stem: The base inventory number to search for.
-    :param alma_sru_client: The AlmaSRUClient instance to use to get the bib record.
-    :return: The first Alma record matching the inventory number,
-        or None if no record is found.
-    """
-    # Try no suffix first, then "T", "M", and "R".
-    # NOTE: The additional suffixes are a shim
-    # to deal with inconsistent inventory numbers across systems.
-    suffixes = ["", "T", "M", "R"]
-    inv_nos_to_check = [inv_no_stem + suffix for suffix in suffixes]
-    bib_record = None
-    for inv_no in inv_nos_to_check:
-        search_results = alma_sru_client.search_by_call_number(inv_no)
-        filtered_bib_records: list[Pymarc_Record] = (
-            filter_by_inventory_number_and_library(search_results, inv_no)
-        )
-        if filtered_bib_records:
-            # Take the first record that matches the inventory number and is from FTVA
-            bib_record = filtered_bib_records[0]
-            if inv_no != inv_no_stem:
-                logger.info(
-                    f"Inventory number '{inv_no_stem}' from DD "
-                    f"matched to '{inv_no}' in Alma."
-                )
-            break
-    return bib_record
-
-
 def _get_filemaker_record(
     inventory_number: str,
     filemaker_client: FilemakerClient,
@@ -240,8 +204,8 @@ def _get_metadata_records(
             )
             continue  # skip to next DD record
 
-        bib_record = _get_alma_bib_record_with_possible_suffix(
-            inventory_number, alma_sru_client
+        bib_record = get_alma_bib_record_with_possible_suffix(
+            inventory_number, alma_sru_client, logger
         )
         # Missing Alma record is OK, so log a warning and proceed with batch
         if not bib_record:
