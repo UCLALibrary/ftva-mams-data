@@ -1,5 +1,6 @@
 import argparse
 import logging
+import spacy
 import sys
 
 from datetime import datetime
@@ -94,6 +95,9 @@ def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
     :param input_data: Input data as a list of dicts.
     :return: A list of metadata records.
     """
+    # Load spacy model used by `ftva_etl` once per batch,
+    # to avoid loading it in the package for each record
+    nlp_model = spacy.load("en_core_web_md")
     # Alma SRU client for use below
     alma_sru_client = AlmaSRUClient()
 
@@ -113,7 +117,7 @@ def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
         match_asset = row["match asset UUID"].strip() or None
 
         metadata_record = get_mams_metadata_ndm(
-            item_record, inventory_record, alma_bib_record, match_asset
+            item_record, inventory_record, alma_bib_record, match_asset, nlp_model
         )
         metadata_records.append(metadata_record)
     return metadata_records
