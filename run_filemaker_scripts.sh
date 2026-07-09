@@ -3,6 +3,7 @@ set -e
 cd /home/exlsupport/ftva-mams-data
 
 DATE=$(date +%Y%m%d)
+# Set the start and end dates for validation to be 14 days ago and today, respectively
 START_DATE=$(date -d "-14 days" +%m/%d/%Y)
 END_DATE=$(date +%m/%d/%Y)
 
@@ -32,7 +33,7 @@ done
 
 
 # Compress any validation CSV over ~1MB so the combined email stays under
-# Postfix's message_size_limit (10240000 bytes, confirmed on this server).
+# the message_size_limit (10240000 bytes on p-u-exlsupport01)
 COMPRESS_THRESHOLD=1000000
 
 FINAL_CSVS=()
