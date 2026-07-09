@@ -30,9 +30,24 @@ uv run filemaker_batch_update.py \
   -f production_type Language director release_broadcast_year record_date \
   > "$BATCH_LOG" 2>&1
 
-ATTACHMENTS=(-a "$BATCH_LOG" -a "$VALIDATION_LOG")
+# Compress any validation CSV over ~1MB so the combined email stays under
+# Postfix's message_size_limit (10240000 bytes, confirmed on this server).
+COMPRESS_THRESHOLD=1000000
+
+FINAL_CSVS=()
 for CSV in "${VALIDATION_CSVS[@]}"; do
-  ATTACHMENTS+=(-a "$CSV")
+  SIZE=$(stat -c%s "$CSV")
+  if [ "$SIZE" -gt "$COMPRESS_THRESHOLD" ]; then
+    gzip -f "$CSV"
+    FINAL_CSVS+=("${CSV}.gz")
+  else
+    FINAL_CSVS+=("$CSV")
+  fi
+done
+
+ATTACHMENTS=(-a "$VALIDATION_LOG")
+for FILE in "${FINAL_CSVS[@]}"; do
+  ATTACHMENTS+=(-a "$FILE")
 done
 
 mail -s "FTVA FileMaker batch/validation report $(date +%F)" \
