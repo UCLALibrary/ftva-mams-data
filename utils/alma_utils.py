@@ -38,7 +38,7 @@ def get_alma_bib_record_with_possible_suffix(
             bib_record = filtered_bib_records[0]
             if inv_no != inv_no_stem:
                 _logger.info(
-                    f"Inventory number '{inv_no_stem}' from DD "
+                    f"Inventory number '{inv_no_stem}' from input data "
                     f"matched to '{inv_no}' in Alma."
                 )
             break
