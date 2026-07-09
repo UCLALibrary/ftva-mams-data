@@ -14,6 +14,10 @@ spaCy would be loaded whenever any utils function is imported, including those i
 
 Modules
 -------
+alma_utils
+    Record retrieval helpers for Alma, shared between legacy and new media scripts.
+generate_metadata_utils
+    Shared helpers for MAMS metadata generation scripts.
 filemaker_utils
     Client initialization, configuration loading, logging setup,
     and record retrieval helpers for Filemaker.
