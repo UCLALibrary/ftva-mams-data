@@ -3,15 +3,40 @@ set -e
 cd /home/exlsupport/ftva-mams-data
 
 DATE=$(date +%Y%m%d)
+START_DATE=$(date -d "-14 days" +%m/%d/%Y)
+END_DATE=$(date +%m/%d/%Y)
+
 BATCH_LOG="/tmp/filemaker_batch_update_${DATE}.log"
 VALIDATION_LOG="/tmp/filemaker_validation_report_${DATE}.log"
 
-uv run filemaker_batch_update.py --config_file prod_config_secrets.toml > "$BATCH_LOG" 2>&1
-uv run filemaker_validation_report.py --config_file prod_config_secrets.toml > "$VALIDATION_LOG" 2>&1
+LAYOUTS=("InventoryForLabeling_API" "NEW DIGITAL_API" "NEW DIGITAL STORAGE_API")
+VALIDATION_CSVS=()
+
+for LAYOUT in "${LAYOUTS[@]}"; do
+  SLUG=$(echo "$LAYOUT" | tr ' ' '_')
+  OUTPUT_CSV="/tmp/filemaker_validation_report_${DATE}_${SLUG}.csv"
+  uv run filemaker_validation_report.py \
+    --config_file prod_config_secrets.toml \
+    --start_date "$START_DATE" \
+    --end_date "$END_DATE" \
+    --layout "$LAYOUT" \
+    --output_csv "$OUTPUT_CSV" \
+    >> "$VALIDATION_LOG" 2>&1
+  VALIDATION_CSVS+=("$OUTPUT_CSV")
+done
+
+uv run filemaker_batch_update.py \
+  --config_file prod_config_secrets.toml \
+  -f production_type Language director release_broadcast_year record_date \
+  > "$BATCH_LOG" 2>&1
+
+ATTACHMENTS=(-a "$BATCH_LOG" -a "$VALIDATION_LOG")
+for CSV in "${VALIDATION_CSVS[@]}"; do
+  ATTACHMENTS+=(-a "$CSV")
+done
 
 mail -s "FTVA FileMaker batch/validation report $(date +%F)" \
-     -a "$BATCH_LOG" \
-     -a "$VALIDATION_LOG" \
+     "${ATTACHMENTS[@]}" \
      -c akohler@library.ucla.edu \
      shogsett@cinema.ucla.edu,amanda.mack@cinema.ucla.edu \
-     <<< "See attached logs for FileMaker batch update script and validation report, run on $(date +%F)."
+     <<< "See attached logs and validation reports (one per layout) for FileMaker batch update and validation, run on $(date +%F)."
