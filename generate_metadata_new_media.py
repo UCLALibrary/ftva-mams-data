@@ -1,5 +1,4 @@
 import argparse
-import csv
 import logging
 import sys
 
@@ -11,7 +10,7 @@ from utils import alma_utils, generate_metadata_utils as gm_utils
 from fmrest.record import Record
 
 # Module-level logger used throughout this module.
-# Handlers are configured explicitly via `_configure_logging`.
+# Handlers are configured explicitly via `gm_utils.configure_logging`.
 LOGGER = logging.getLogger(Path(__file__).stem)
 
 
@@ -115,43 +114,8 @@ def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# CLI arguments, logging, and input file loading
+# CLI arguments
 # ---------------------------------------------------------------------------
-def _read_input_file(input_file: str | Path) -> list[dict]:
-    """Read the input file and return the data as a list of dictionaries.
-
-    :param input_file: Path to the input CSV file.
-    :return: A list of dictionaries."""
-    with open(input_file, "r", encoding="utf-8") as file:
-        return [row for row in csv.DictReader(file)]
-
-
-def _configure_logging(console_logging: bool = True) -> None:
-    """Configure logging for this program.
-
-    By default, logs are written to a timestamped file in `logs/` and to the console.
-    Console logging can be disabled by passing `console_logging=False`.
-
-    :param console_logging: Whether to enable console (stdout) logging.
-    """
-    logs_dir = Path("logs")
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = logs_dir / f"{LOGGER.name}_{timestamp}.log"  # use logger name for file
-
-    LOGGER.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(formatter)
-    LOGGER.addHandler(file_handler)
-
-    if console_logging:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        LOGGER.addHandler(console_handler)
-
-
 def _get_arguments() -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -200,10 +164,10 @@ def main() -> None:
     - JSON file with metadata for MAMS ingest
     """
     args = _get_arguments()
-    _configure_logging(console_logging=not args.disable_console_logging)
+    gm_utils.configure_logging(LOGGER, not args.disable_console_logging)
     config = gm_utils.get_config(args.config_file)
 
-    input_data = _read_input_file(args.input_file)
+    input_data = gm_utils.read_input_file(args.input_file)
 
     metadata_records = _get_metadata_records(config, input_data)
 

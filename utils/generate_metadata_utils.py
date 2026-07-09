@@ -1,7 +1,9 @@
+import csv
 import json
 import logging
 import tomllib
 
+from datetime import datetime
 from pathlib import Path
 
 
@@ -66,6 +68,15 @@ def count_assets_and_tracks(metadata_records: list[dict]) -> tuple[int, int]:
     return asset_count, track_count
 
 
+def read_input_file(input_file: str | Path) -> list[dict]:
+    """Read the input file and return the data as a list of dictionaries.
+
+    :param input_file: Path to the input CSV file.
+    :return: A list of dictionaries."""
+    with open(input_file, "r", encoding="utf-8") as file:
+        return [row for row in csv.DictReader(file)]
+
+
 def write_output_file(output_file: str | Path, data: dict | list[dict]) -> None:
     """Write processed data to a JSON file.
 
@@ -88,3 +99,29 @@ def get_config(config_file_name: str) -> dict:
     with open(config_file_name, "rb") as f:
         config = tomllib.load(f)
     return config
+
+
+def configure_logging(logger: logging.Logger, console_logging: bool = True) -> None:
+    """Configure logging for this program.
+
+    By default, logs are written to a timestamped file in `logs/` and to the console.
+    Console logging can be disabled by passing `console_logging=False`.
+
+    :param console_logging: Whether to enable console (stdout) logging.
+    """
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = logs_dir / f"{logger.name}_{timestamp}.log"  # use logger name for file
+
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
+
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    if console_logging:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)

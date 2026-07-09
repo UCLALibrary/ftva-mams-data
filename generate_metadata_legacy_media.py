@@ -147,34 +147,8 @@ def _initialize_clients(
 
 
 # ---------------------------------------------------------------------------
-# CLI arguments and logging
+# CLI arguments
 # ---------------------------------------------------------------------------
-def _configure_logging(console_logging: bool = True) -> None:
-    """Configure logging for this program.
-
-    By default, logs are written to a timestamped file in `logs/` and to the console.
-    Console logging can be disabled by passing `console_logging=False`.
-
-    :param console_logging: Whether to enable console (stdout) logging.
-    """
-    logs_dir = Path("logs")
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = logs_dir / f"{LOGGER.name}_{timestamp}.log"  # use logger name for file
-
-    LOGGER.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(formatter)
-    LOGGER.addHandler(file_handler)
-
-    if console_logging:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        LOGGER.addHandler(console_handler)
-
-
 def _get_arguments() -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -216,7 +190,7 @@ def _get_arguments() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 def main() -> None:
     args = _get_arguments()
-    _configure_logging(console_logging=not args.disable_console_logging)
+    gm_utils.configure_logging(LOGGER, not args.disable_console_logging)
     config = gm_utils.get_config(args.config_file)
 
     alma_sru_client, filemaker_client, digital_data_client = _initialize_clients(config)
