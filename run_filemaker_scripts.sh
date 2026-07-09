@@ -12,6 +12,11 @@ VALIDATION_LOG="/tmp/filemaker_validation_report_${DATE}.log"
 LAYOUTS=("InventoryForLabeling_API" "NEW DIGITAL_API" "NEW DIGITAL STORAGE_API")
 VALIDATION_CSVS=()
 
+uv run filemaker_batch_update.py \
+  --config_file prod_config_secrets.toml \
+  -f production_type Language director release_broadcast_year record_date \
+  > "$BATCH_LOG" 2>&1
+
 for LAYOUT in "${LAYOUTS[@]}"; do
   SLUG=$(echo "$LAYOUT" | tr ' ' '_')
   OUTPUT_CSV="/tmp/filemaker_validation_report_${DATE}_${SLUG}.csv"
@@ -25,10 +30,6 @@ for LAYOUT in "${LAYOUTS[@]}"; do
   VALIDATION_CSVS+=("$OUTPUT_CSV")
 done
 
-uv run filemaker_batch_update.py \
-  --config_file prod_config_secrets.toml \
-  -f production_type Language director release_broadcast_year record_date \
-  > "$BATCH_LOG" 2>&1
 
 # Compress any validation CSV over ~1MB so the combined email stays under
 # Postfix's message_size_limit (10240000 bytes, confirmed on this server).
