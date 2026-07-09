@@ -18,27 +18,24 @@ LOGGER = logging.getLogger(Path(__file__).stem)
 # ---------------------------------------------------------------------------
 # Data fetching
 # ---------------------------------------------------------------------------
-def _get_inventory_record_by_inventory_id(config: dict, inventory_id: int) -> Record:
+def _get_inventory_record_by_inventory_id(
+    fm_client: FilemakerClient, inventory_id: int
+) -> Record:
     """Get an inventory record by inventory ID from the "NEW DIGITAL_API" layout in Filemaker.
 
-    :param config: Config dict with Filemaker API credentials.
+    :param fm_client: An authenticated Filemaker client instance.
     :param inventory_id: Inventory ID of the inventory record to get.
     :return: The inventory record.
-    :raises SystemExit: if the inventory record is not found.
+    :raises SystemExit: if the inventory record is not found or if multiple records are found.
     """
     fm_inventory_layout = "NEW DIGITAL_API"
-    fm_client = FilemakerClient(
-        config["filemaker"]["user"],
-        config["filemaker"]["password"],
-        layout=fm_inventory_layout,
-    )
-
     # This query syntax matches the provided inventory ID exactly
     query = [{"inventory_id": f"=={inventory_id}"}]
     # Using `find_all_records` because there is no built-in `fmrest` method
     # for getting a single record by an arbitrary field.
     # TODO: consider adding a `find_one_record` method to the FilemakerClient class.
-    result = fm_client.find_all_records(query=query)
+    # Default layout on `fm_client` is overridden using `request_layout` parameter.
+    result = fm_client.find_all_records(query=query, request_layout=fm_inventory_layout)
     if not result:
         LOGGER.error(f"Inventory record not found for inventory ID {inventory_id}")
         sys.exit(1)
@@ -51,27 +48,22 @@ def _get_inventory_record_by_inventory_id(config: dict, inventory_id: int) -> Re
     return result[0]
 
 
-def _get_item_record_by_uuid(config: dict, uuid: str) -> Record:
+def _get_item_record_by_uuid(fm_client: FilemakerClient, uuid: str) -> Record:
     """Get an item record by UUID from the "New Digital DMIU" layout in Filemaker.
 
-    :param config: Config dict with Filemaker API credentials.
+    :param fm_client: An authenticated Filemaker client instance.
     :param uuid: UUID of the item record to get.
     :return: The item record.
-    :raises SystemExit: if the item record is not found.
+    :raises SystemExit: if the item record is not found or if multiple records are found.
     """
     fm_item_unit_layout = "New Digital DMIU"
-    fm_client = FilemakerClient(
-        config["filemaker"]["user"],
-        config["filemaker"]["password"],
-        layout=fm_item_unit_layout,
-    )
-
     # This query syntax matches the provided UUID exactly
     query = [{"UUID": f"=={uuid}"}]
     # Using `find_all_records` because there is no built-in `fmrest` method
     # for getting a single record by an arbitrary field.
     # TODO: consider adding a `find_one_record` method to the FilemakerClient class.
-    result = fm_client.find_all_records(query=query)
+    # Default layout on `fm_client` is overridden using `request_layout` parameter.
+    result = fm_client.find_all_records(query=query, request_layout=fm_item_unit_layout)
     # If no records are found, or if there are multiple records found, exit with an error
     if not result:
         LOGGER.error(f"Item record not found for UUID {uuid}")
@@ -98,16 +90,21 @@ def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
     # Load spacy model used by `ftva_etl` once per batch,
     # to avoid loading it in the package for each record
     nlp_model = spacy.load("en_core_web_md")
-    # Alma SRU client for use below
+
+    # Clients for data sources used below
+    fm_client = FilemakerClient(
+        config["filemaker"]["user"],
+        config["filemaker"]["password"],
+    )
     alma_sru_client = AlmaSRUClient()
 
     metadata_records = []
     for row in input_data:
         # Get item record by provided UUID,
         # then get inventory record using `inventory_id_fk` from item record
-        item_record = _get_item_record_by_uuid(config, row["UUID"])
+        item_record = _get_item_record_by_uuid(fm_client, row["UUID"])
         inventory_record = _get_inventory_record_by_inventory_id(
-            config, item_record["inventory_id_fk"]
+            fm_client, item_record["inventory_id_fk"]
         )
         # Search for Alma bib record matching inventory number, with retries for possible suffixes
         alma_bib_record = alma_utils.get_alma_bib_record_with_possible_suffix(
