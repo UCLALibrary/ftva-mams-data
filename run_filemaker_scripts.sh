@@ -38,6 +38,9 @@ COMPRESS_THRESHOLD=1000000
 
 FINAL_CSVS=()
 for CSV in "${VALIDATION_CSVS[@]}"; do
+  if [ ! -f "$CSV" ]; then
+    continue  # no violations for this layout; no CSV was written
+  fi
   SIZE=$(stat -c%s "$CSV")
   if [ "$SIZE" -gt "$COMPRESS_THRESHOLD" ]; then
     gzip -f "$CSV"
