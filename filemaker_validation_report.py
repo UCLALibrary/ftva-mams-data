@@ -420,7 +420,13 @@ def validate_record(layout: str, record: Record) -> list[dict]:
 
 
 def _write_csv_report(violations: list[dict], output_path: Path) -> None:
-    """Write violations dicts to a CSV file at the given path."""
+    """Write violations dicts to a CSV file at the given path.
+
+    If there are no violations, no file is written, to avoid emailing
+    or storing header-only CSVs."""
+    if not violations:
+        logger.info(f"No violations found; no report written to {output_path}.")
+        return
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         # Ignore extra dict keys (like 'portal_record_id') so we can keep
@@ -589,9 +595,11 @@ def _get_arguments() -> argparse.Namespace:
 
 
 def main() -> None:
+    start_time = datetime.now()
     args = _get_arguments()
 
     fm_utils.configure_logging(logger)
+    logger.info(f"Run started at {start_time.isoformat(timespec='seconds')}.")
 
     if bool(args.start_date) != bool(args.end_date):
         logger.error("--start_date and --end_date must both be provided, or neither.")
@@ -626,6 +634,12 @@ def main() -> None:
 
     # ---- Report ----
     _write_csv_report(all_violations, output_path)
+
+    end_time = datetime.now()
+    logger.info(
+        f"Run finished at {end_time.isoformat(timespec='seconds')}. "
+        f"Total duration: {end_time - start_time}."
+    )
 
 
 if __name__ == "__main__":

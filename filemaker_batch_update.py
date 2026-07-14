@@ -970,8 +970,10 @@ def _process_batch(
 
 
 def main() -> None:
+    start_time = datetime.now()
     args = _get_arguments()
     configure_logging(logger, suffix="_DRY_RUN" if args.dry_run else "")
+    logger.info(f"Run started at {start_time.isoformat(timespec='seconds')}.")
     config = get_config(args.config_file)
 
     if args.dry_run:
@@ -1009,6 +1011,12 @@ def main() -> None:
     )
     if stats["updates_failed"] > 0:
         logger.warning(f"{stats['updates_failed']} record update(s) failed.")
+
+    end_time = datetime.now()
+    logger.info(
+        f"Run finished at {end_time.isoformat(timespec='seconds')}. "
+        f"Total duration: {end_time - start_time}."
+    )
 
 
 if __name__ == "__main__":
