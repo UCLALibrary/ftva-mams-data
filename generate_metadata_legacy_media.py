@@ -210,7 +210,10 @@ def main() -> None:
     )
 
     # If match_asset relationships are invalid, log an error and exit
-    if not gm_utils.validate_match_asset_relationships(metadata_records):
+    if not gm_utils.validate_match_asset_relationships(
+        metadata_records=metadata_records,
+        logger=LOGGER,
+    ):
         LOGGER.error(
             "Invalid match_asset relationships found in metadata records. Review logs for details."
         )

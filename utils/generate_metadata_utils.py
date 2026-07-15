@@ -8,14 +8,20 @@ from pathlib import Path
 
 
 def validate_match_asset_relationships(
-    metadata_records: list[dict], logger: logging.Logger | None = None
+    metadata_records: list[dict],
+    check_inventory_numbers: bool = True,
+    logger: logging.Logger | None = None,
 ) -> bool:
     """For each metadata record with a `match_asset` field, check that:
 
     1. the match_asset value actually references another record in the batch; and
-    2. the first inventory numbers of the two related records are the same.
+    2. the first inventory numbers of the two related records are the same
+        (if `check_inventory_numbers` is True).
 
     :param metadata_records: List of metadata records.
+    :param check_inventory_numbers: Whether to check that the first inventory numbers
+        of the two related records are the same (defaults to True).
+    :param logger: Logger to use for logging. If not provided, the default logger will be used.
     :return: True if all match_asset relationships are valid, False otherwise.
     """
     _logger = logger or logging.getLogger(__name__)
@@ -39,18 +45,20 @@ def validate_match_asset_relationships(
             )
             return False
 
-        # Now check inventory numbers, using the first inv no for each record
-        record_inv = (record.get("inventory_numbers") or [None])[0]
-        matched_record_inv = (matched_record.get("inventory_numbers") or [None])[0]
+        if check_inventory_numbers:
+            # Now check inventory numbers, using the first inv no for each record
+            record_inv = (record.get("inventory_numbers") or [None])[0]
+            matched_record_inv = (matched_record.get("inventory_numbers") or [None])[0]
 
-        # Fail validation if inventory numbers do not match
-        if record_inv != matched_record_inv:
-            _logger.error(
-                f"Inventory numbers do not match for match_asset relationship "
-                f"{record['record_type']} {record['uuid']}: '{record_inv}', "
-                f"{matched_record['record_type']} {matched_record['uuid']}: '{matched_record_inv}'"
-            )
-            return False
+            # Fail validation if inventory numbers do not match
+            if record_inv != matched_record_inv:
+                _logger.error(
+                    f"Inventory numbers do not match for match_asset relationship: "
+                    f"{record['record_type']} {record['uuid']}: '{record_inv}', "
+                    f"{matched_record['record_type']} {matched_record['uuid']}: "
+                    f"'{matched_record_inv}'"
+                )
+                return False
     return True
 
 
