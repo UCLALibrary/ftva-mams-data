@@ -100,7 +100,31 @@ class TestGenerateMetadata(unittest.TestCase):
             result = validate_match_asset_relationships(test_records)
             self.assertFalse(result)
             self.assertIn(
-                "Inventory numbers do not match for match_asset relationship "
+                "Inventory numbers do not match for match_asset relationship: "
                 "track 09876: 'INV003', asset 12345: 'INV001'",
                 context_manager.output[0],
             )
+
+    def test_validate_match_asset_relationships_with_check_inventory_numbers_false(self):
+        """Test that `validate_match_asset_relationships`
+        returns True when `check_inventory_numbers` is False,
+        even if the inventory numbers of the match_asset and target record do not match.
+        """
+        test_records = [
+            {"uuid": "12345", "inventory_numbers": ["INV001"], "record_type": "asset"},
+            {"uuid": "67890", "inventory_numbers": ["INV002"], "record_type": "asset"},
+            {
+                "uuid": "09876",
+                "inventory_numbers": ["INV003"],  # inv no does not match the target
+                "match_asset": "12345",
+                "record_type": "track",
+            },
+        ]
+
+        # There should be no log messages emitted here,
+        # since `check_inventory_numbers` is set to False
+        with self.assertNoLogs():
+            result = validate_match_asset_relationships(
+                test_records, check_inventory_numbers=False
+            )
+            self.assertTrue(result)
