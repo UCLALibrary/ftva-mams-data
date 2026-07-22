@@ -79,13 +79,16 @@ def _get_item_record_by_uuid(fm_client: FilemakerClient, uuid: str) -> Record:
 # ---------------------------------------------------------------------------
 # Metadata generation
 # ---------------------------------------------------------------------------
-def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
+def _get_metadata_records(
+    config: dict, input_data: list[dict]
+) -> tuple[list[dict], bool]:
     """Get metadata records for MAMS ingest,
     using input data to fetch necessary sources from Filemaker and possibly Alma.
 
     :param config: Config dict with API credentials.
     :param input_data: Input data as a list of dicts.
-    :return: A list of metadata records.
+    :return: A tuple of a list of metadata records
+        and a boolean indicating if there are errors with the batch.
     """
     # Load spacy model used by `ftva_etl` once per batch,
     # to avoid loading it in the package for each record
@@ -99,6 +102,7 @@ def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
     alma_sru_client = AlmaSRUClient()
 
     metadata_records = []
+    has_errors = False
     for row in input_data:
         # Get item record by provided UUID,
         # then get inventory record using `inventory_id_fk` from item record
@@ -113,11 +117,18 @@ def _get_metadata_records(config: dict, input_data: list[dict]) -> list[dict]:
         # Set match asset if present
         match_asset = row["match asset UUID"].strip() or None
 
-        metadata_record = get_mams_metadata_ndm(
-            item_record, inventory_record, alma_bib_record, match_asset, nlp_model
-        )
-        metadata_records.append(metadata_record)
-    return metadata_records
+        try:
+            metadata_record = get_mams_metadata_ndm(
+                item_record, inventory_record, alma_bib_record, match_asset, nlp_model
+            )
+            metadata_records.append(metadata_record)
+        except (ValueError, TypeError) as e:
+            LOGGER.error(
+                f"Error generating metadata for UUID {row['UUID']}: {e}. Skipping."
+            )
+            has_errors = True
+            continue
+    return metadata_records, has_errors
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +188,13 @@ def main() -> None:
     input_data = gm_utils.read_input_file(args.input_file)
     LOGGER.info(f"Loaded {len(input_data)} input records from {args.input_file}")
 
-    metadata_records = _get_metadata_records(config, input_data)
+    metadata_records, has_errors = _get_metadata_records(config, input_data)
+
+    if has_errors:
+        LOGGER.error(
+            "Errors occurred during metadata generation. Review logs for details."
+        )
+        return
 
     # If there are any validation problems, log them and exit without writing output file.
     # Inventory numbers are expected to differ for NDM, so we disable inventory number validation.
