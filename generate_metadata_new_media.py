@@ -179,10 +179,17 @@ def main() -> None:
 
     metadata_records = _get_metadata_records(config, input_data)
 
-    # If match_asset relationships are invalid, log an error and exit
-    if not gm_utils.validate_match_asset_relationships(metadata_records):
+    # If there are any validation problems, log them and exit without writing output file.
+    # Inventory numbers are expected to differ for NDM, so we disable inventory number validation.
+    validation_problems = gm_utils.validate_match_asset_relationships(
+        metadata_records, check_inventory_numbers=False
+    )
+    if validation_problems:
+        for problem in validation_problems:
+            LOGGER.error(problem)
         LOGGER.error(
-            "Invalid match_asset relationships found in metadata records. Review logs for details."
+            "Problems found with match_asset relationships. "
+            "Please fix the issues and try again."
         )
         return
 
