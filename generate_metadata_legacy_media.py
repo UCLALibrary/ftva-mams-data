@@ -209,13 +209,14 @@ def main() -> None:
         digital_data_records, alma_sru_client, filemaker_client
     )
 
-    # If match_asset relationships are invalid, log an error and exit
-    if not gm_utils.validate_match_asset_relationships(
-        metadata_records=metadata_records,
-        logger=LOGGER,
-    ):
+    # If there are any validation problems, log them and exit without writing output file
+    validation_problems = gm_utils.validate_match_asset_relationships(metadata_records)
+    if validation_problems:
+        for problem in validation_problems:
+            LOGGER.error(problem)
         LOGGER.error(
-            "Invalid match_asset relationships found in metadata records. Review logs for details."
+            "Problems found with match_asset relationships. "
+            "Please fix the issues and try again."
         )
         return
 
