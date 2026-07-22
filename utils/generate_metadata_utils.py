@@ -45,8 +45,8 @@ def validate_match_asset_relationships(
 
         if check_inventory_numbers:
             # Now check inventory numbers, using the first inv no for each record
-            record_inv = (record.get("inventory_numbers") or [None])[0]
-            matched_record_inv = (matched_record.get("inventory_numbers") or [None])[0]
+            record_inv = record.get("inventory_numbers", [None])[0]
+            matched_record_inv = matched_record.get("inventory_numbers", [None])[0]
 
             # Append a message if the inventory numbers do not match
             if record_inv != matched_record_inv:
