@@ -75,7 +75,27 @@ def _get_arguments() -> argparse.Namespace:
         default=1,
         required=False,
         help="Offset (position in list of records, NOT `record_id`) to start fetching records from"
-        " Filemaker. Default is 1.",
+        " Filemaker. Only applies when no date range is given. Default is 1.",
+    )
+    parser.add_argument(
+        "--start_date",
+        type=str,
+        default=None,
+        metavar="MM/DD/YYYY",
+        help=(
+            "If provided, only process records modified on or after this date "
+            "(FM field date_modified). Requires --end_date."
+        ),
+    )
+    parser.add_argument(
+        "--end_date",
+        type=str,
+        default=None,
+        metavar="MM/DD/YYYY",
+        help=(
+            "If provided, only process records modified on or before this date. "
+            "Requires --start_date."
+        ),
     )
     return parser.parse_args()
 
@@ -926,12 +946,57 @@ def _process_record(
     return len(pending_changes)
 
 
+def _build_query_criterion(
+    start_date: str | None,
+    end_date: str | None,
+) -> dict | None:
+    """Build the FileMaker find query criterion dict for the given date range.
+
+    :param start_date: Start of the date range (MM/DD/YYYY), or None.
+    :param end_date: End of the date range (MM/DD/YYYY), or None.
+    :return: A dict suitable for use as a single find criterion, or None if no
+        date range was provided.
+    """
+    if start_date and end_date:
+        return {"date_modified": f"{start_date}...{end_date}"}
+    return None
+
+
+def _get_records_to_process(
+    fm_client: FilemakerClient,
+    page_size: int,
+    offset: int,
+    start_date: str | None,
+    end_date: str | None,
+) -> list[Record]:
+    """Retrieve the Filemaker records to process, optionally filtered by date range.
+
+    :param fm_client: Configured `FilemakerClient` instance.
+    :param page_size: Page size (i.e. `limit` param) for fetching records from Filemaker.
+    :param offset: Position (NOT record_id) to start at. Only used when no date range
+        is given.
+    :param start_date: Start of the date range (MM/DD/YYYY), or None.
+    :param end_date: End of the date range (MM/DD/YYYY), or None.
+    :return: List of Filemaker records to process.
+    """
+    query_criterion = _build_query_criterion(start_date, end_date)
+
+    if query_criterion is not None:
+        logger.info(f"Fetching records with query filter criteria: {query_criterion}.")
+        return fm_client.find_all_records(query=[query_criterion], page_size=page_size)
+
+    logger.info("Fetching all records (no date range provided).")
+    return get_all_records(fm_client, page_size, offset)
+
+
 def _process_batch(
     field_names: list[str],
     fm_client: FilemakerClient,
     dry_run: bool,
     page_size: int,
     offset: int = 1,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict[str, int]:
     """Apply transformations to the provided fields on the Filemaker records.
 
@@ -939,7 +1004,12 @@ def _process_batch(
     :param fm_client: Configured `FilemakerClient` instance.
     :param dry_run: If True, log changes without writing to Filemaker.
     :param page_size: Page size (i.e. `limit` param) for fetching records from Filemaker.
-    :param offset: Position (NOT record_id) to start at. Default: 1.
+    :param offset: Position (NOT record_id) to start at. Only used when no date range
+        is given. Default: 1.
+    :param start_date: If provided (with end_date), only process records modified on
+        or after this date (MM/DD/YYYY).
+    :param end_date: If provided (with start_date), only process records modified on
+        or before this date (MM/DD/YYYY).
     :return: Stats summarizing records processed, updated, and changes applied.
     """
     stats = {
@@ -950,7 +1020,11 @@ def _process_batch(
     }
     fields_validated = False
 
-    for fm_record in get_all_records(fm_client, page_size, offset):
+    records = _get_records_to_process(
+        fm_client, page_size, offset, start_date, end_date
+    )
+
+    for fm_record in records:
         # Validate fields against first record.
         # Invalid fields will raise an exception and cause the program to exit,
         # with a message explaining which fields are missing and which are available.
@@ -974,6 +1048,11 @@ def main() -> None:
     args = _get_arguments()
     configure_logging(logger, suffix="_DRY_RUN" if args.dry_run else "")
     logger.info(f"Run started at {start_time.isoformat(timespec='seconds')}.")
+
+    if bool(args.start_date) != bool(args.end_date):
+        logger.error("--start_date and --end_date must both be provided, or neither.")
+        return
+
     config = get_config(args.config_file)
 
     if args.dry_run:
@@ -999,7 +1078,13 @@ def main() -> None:
     fm_client = initialize_client(config, logger)
 
     stats = _process_batch(
-        fields_with_transformers, fm_client, args.dry_run, args.page_size, args.offset
+        fields_with_transformers,
+        fm_client,
+        args.dry_run,
+        args.page_size,
+        args.offset,
+        args.start_date,
+        args.end_date,
     )
 
     action = "Would update" if args.dry_run else "Updated"
