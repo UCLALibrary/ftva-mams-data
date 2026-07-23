@@ -131,6 +131,15 @@ def _check_null(value: str) -> list[str]:
     return []
 
 
+def _check_valid_date(value: str) -> list[str]:
+    """Field must be a valid date in format returned by FM API (MM/DD/YYYY)."""
+    try:
+        datetime.strptime(value, "%m/%d/%Y")
+        return []
+    except ValueError:
+        return [f"Field value {value!r} is not a valid date in MM/DD/YYYY format."]
+
+
 # ---------------------------------------------------------------------------
 # Layout -> flat field -> validators mapping
 # ---------------------------------------------------------------------------
@@ -192,7 +201,7 @@ PORTAL_FIELD_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
     DC_PORTAL: {
         "Item_unit_number": [_check_null],
         "file_size_display": [_check_null],
-        "Creation_date": [_check_null],
+        "Creation_date": [_check_null, _check_valid_date],
         "audio_class": [_check_null],
         "file_path": [_check_null],
     },
