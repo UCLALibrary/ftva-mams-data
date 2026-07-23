@@ -80,6 +80,31 @@ Examples below assume you're running them in an existing `bash` shell within the
 a container, add `docker compose exec ftva_data ` to the beginning of the command (e.g., 
 `docker compose exec ftva_data python filemaker_get_all_records.py --config_file CONFIG_FILE` ).
 
+
+### Batch update Filemaker records
+
+```
+python filemaker_batch_update.py \
+    --config_file CONFIG_FILE \
+    -f FIELD [FIELD ...] \
+    [--start_date MM/DD/YYYY --end_date MM/DD/YYYY] \
+    [--page_size PAGE_SIZE] \
+    [--offset OFFSET] \
+    [--dry_run]
+```
+
+This script applies per-field transformation/standardization rules to records in the FileMaker layout configured in `CONFIG_FILE`.
+
+By default the script iterates all records in the layout. To target only recently added or edited records, pass `--start_date` and `--end_date` together; the script will use FileMaker's find API to query only records modified within that date range.
+
+**Arguments:**
+
+- `--config_file` (required): path to the TOML config file (see Secrets above).
+- `-f` / `--fields` (required): one or more FM field names to process.
+- `--start_date` / `--end_date`: date range filter, in `MM/DD/YYYY` format. Both must be provided together, or neither.
+- `--page_size`: number of records to fetch per API request (default: 5000).
+- `--offset`: starting record position for a full scan; ignored when a date range is given (default: 1).
+- `--dry_run`: preview changes without writing anything to Filemaker.
 ### Report Filemaker validation rule violations
 
 ```
