@@ -131,6 +131,15 @@ def _check_null(value: str) -> list[str]:
     return []
 
 
+def _check_valid_date(value: str) -> list[str]:
+    """Field must be a valid date in YYYY-MM-DD format."""
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return []
+    except ValueError:
+        return [f"Field value {value!r} is not a valid date in YYYY-MM-DD format."]
+
+
 # ---------------------------------------------------------------------------
 # Layout -> flat field -> validators mapping
 # ---------------------------------------------------------------------------
@@ -192,7 +201,7 @@ PORTAL_FIELD_VALIDATORS: dict[str, dict[str, list[Callable]]] = {
     DC_PORTAL: {
         "Item_unit_number": [_check_null],
         "file_size_display": [_check_null],
-        "Creation_date": [_check_null],
+        "Creation_date": [_check_null, _check_valid_date],
         "audio_class": [_check_null],
         "file_path": [_check_null],
     },
@@ -491,6 +500,8 @@ def _get_records_for_layout(
         records = fm_client.find_all_records(
             query=[query_criterion],
             page_size=args.page_size,
+            # Set dateformats for ISO 8601 format, since otherwise the API returns MM/DD/YY
+            date_format="iso-8601",
         )
     else:
         # DS layout with no date range: no find criteria, iterate all records.
