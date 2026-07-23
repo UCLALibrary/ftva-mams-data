@@ -132,12 +132,12 @@ def _check_null(value: str) -> list[str]:
 
 
 def _check_valid_date(value: str) -> list[str]:
-    """Field must be a valid date in format returned by FM API (MM/DD/YYYY)."""
+    """Field must be a valid date in YYYY-MM-DD format."""
     try:
-        datetime.strptime(value, "%m/%d/%Y")
+        datetime.strptime(value, "%Y-%m-%d")
         return []
     except ValueError:
-        return [f"Field value {value!r} is not a valid date in MM/DD/YYYY format."]
+        return [f"Field value {value!r} is not a valid date in YYYY-MM-DD format."]
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +500,8 @@ def _get_records_for_layout(
         records = fm_client.find_all_records(
             query=[query_criterion],
             page_size=args.page_size,
+            # Set dateformats for ISO 8601 format, since otherwise the API returns MM/DD/YY
+            date_format="iso-8601",
         )
     else:
         # DS layout with no date range: no find criteria, iterate all records.
