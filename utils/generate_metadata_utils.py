@@ -92,7 +92,7 @@ def write_output_file(output_file: str | Path, data: dict | list[dict]) -> None:
     # Allows for `output_file` to be a relative path.
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, mode="w", encoding="utf-8") as file:
-        json.dump(data, file, indent=4)
+        json.dump(data, file, indent=4, ensure_ascii=False)
 
 
 def get_config(config_file_name: str) -> dict:
