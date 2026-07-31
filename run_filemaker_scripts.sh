@@ -16,6 +16,8 @@ VALIDATION_CSVS=()
 uv run filemaker_batch_update.py \
   --config_file prod_config_secrets.toml \
   -f production_type Language director release_broadcast_year record_date \
+  --start_date "$START_DATE" \
+  --end_date "$END_DATE" \
   > "$BATCH_LOG" 2>&1
 
 for LAYOUT in "${LAYOUTS[@]}"; do
